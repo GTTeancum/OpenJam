@@ -21,16 +21,20 @@ as.
   those applied, the 360 build boots to a title screen reading "v2.0 by
   johnz1" - the mod's own strings, straight out of the PS3 localisation
   database.
-- Textures do **not**. The PS3 build stores them as DDS inside the `.ast`
-  archives and this build expects XPR. Applying the mod's front-end archives
-  leaves the menus black: the game fails the load quietly rather than drawing
-  garbage. Converting them is the open piece of work. The PS3 and
-Xbox 360 releases of NBA JAM: On Fire Edition are the same game on the same
-big-endian PowerPC architecture and their data trees line up almost exactly:
-`data/ps3/...` against `data/xenon/...`, with 170 files byte-identical between
-a modded PS3 build and the stock 360 build. The differences that do exist are
-the mod's own content plus a handful of platform files (PS3 `.gtf` boot
-textures against 360 `.xpr`, PS3 save icons), which are left behind.
+- Texture *archives* do **not**. Dropping the mod's `.ast` files in leaves the
+  menus black: this build stores XPR2 resources and the PS3 ones are not that,
+  so the game fails the load quietly rather than drawing garbage.
+
+  Textures are instead replaced individually as DDS, which the runtime reads
+  directly - see `src/dds_textures.cpp`. Put `.dds` files in
+  `<game root>/dlc_textures/`, named after the texture they replace.
+
+The two data trees line up almost exactly, `data/ps3/...` against
+`data/xenon/...`, with 170 files byte-identical between a modded PS3 build and
+the stock 360 build. Both consoles are big-endian PowerPC, which is why so much
+transfers untouched. What differs is the mod's own content plus a handful of
+platform files (PS3 `.gtf` boot textures against 360 `.xpr`, PS3 save icons),
+which import leaves behind.
 
 `instance` builds a complete game root for a chosen mod: every base game file,
 with the mod's files in place of the ones it replaces. It uses hard links, so

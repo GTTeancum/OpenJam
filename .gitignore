@@ -18,3 +18,7 @@ CMakeUserPresets.json
 # Achievement icons are extracted from the XEX; regenerate with
 #   rexglue init --project-name nbajam_ofe --xex-path <xex> achievements <xex> metadata
 metadata/icons/
+
+# Python bytecode from the tools
+__pycache__/
+*.pyc

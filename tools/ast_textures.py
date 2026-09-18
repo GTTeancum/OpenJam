@@ -110,6 +110,33 @@ class Ast:
             return zlib.decompressobj(-15).decompress(raw)
 
 
+def xpr2_layout(blob):
+    """(name, data_offset, data_size, descriptor_offset) for an XPR2 blob.
+
+    Neither offset is where it looks like it should be. Both are taken from
+    what the guest loader itself computes, and checked against 330 textures
+    across the HUD, front-end and boot archives.
+    """
+    data_off = struct.unpack_from(">I", blob, 0x04)[0] + 12
+    data_size = struct.unpack_from(">I", blob, 0x08)[0]
+    desc_off = struct.unpack_from(">I", blob, 0x14)[0] + 40
+    name = blob[0x24:desc_off].split(bytes([0]))[0].decode("latin-1")
+    return name, data_off, data_size, desc_off
+
+
+def pixel_hash(blob):
+    """FNV-1a over the pixel data; matches HashPixels in src/dds_textures.cpp.
+
+    Textures in the front-end and boot archives are all called `strName`, so
+    a name is not enough to identify one. This is.
+    """
+    _, off, size, _ = xpr2_layout(blob)
+    h = 0xCBF29CE484222325
+    for b in blob[off:off + size]:
+        h = ((h ^ b) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+    return "{:016x}".format(h)
+
+
 def kind(blob):
     if blob[:4] == b"XPR2":
         return "xpr2"
@@ -210,6 +237,31 @@ def cmd_export(args):
     return 0
 
 
+def cmd_keys(args):
+    """The two ways a replacement .dds can be named, for every texture here."""
+    a = Ast(args.archive)
+    FMT = {18: "DXT1", 19: "DXT2_3", 20: "DXT4_5"}
+    shown = 0
+    for e in a.entries:
+        if args.filter and args.filter.lower() not in e["name"].lower():
+            continue
+        try:
+            blob = a.read(e)
+        except NotImplementedError:
+            continue
+        if blob[:4] != b"XPR2":
+            continue
+        name, _, size, desc = xpr2_layout(blob)
+        d = struct.unpack_from(">6I", blob, desc)
+        w = (d[2] & 0x1FFF) + 1
+        h = ((d[2] >> 13) & 0x1FFF) + 1
+        print("  {:<16s} {:<26s} {:>5}x{:<5} {:<7s} {:>10,}".format(
+            pixel_hash(blob), name, w, h, FMT.get(d[1] & 0x3F, "?"), size))
+        shown += 1
+    print("  {} texture(s)".format(shown))
+    return 0
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -220,6 +272,11 @@ def main(argv):
     p.add_argument("filter", nargs="?")
     p.add_argument("--limit", type=int, default=25)
     p.set_defaults(func=cmd_list)
+
+    p = sub.add_parser("keys", help="names and content hashes of 360 textures")
+    p.add_argument("archive")
+    p.add_argument("filter", nargs="?")
+    p.set_defaults(func=cmd_keys)
 
     p = sub.add_parser("export", help="write every PS3 texture out as .dds")
     p.add_argument("archive")

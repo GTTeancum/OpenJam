@@ -16,3 +16,13 @@ address = 0x824E5FD8
 name = "NbaVp6WriteBlock"
 registers = ["r3", "r4", "r5"]
 return_on_true = true
+
+# DDS texture replacement. sub_823FC250 is the guest function that turns a blob
+# loaded from a .ast archive into a texture; it opens by checking the first four
+# bytes for 'XPR2'. The hook runs before that check and rewrites the blob in
+# place when the active mod supplies a replacement. Plain hook, no return
+# control: the guest function still does the work.
+[[midasm_hook]]
+address = 0x823FC250
+name = "NbaDdsSubstitute"
+registers = ["r3"]
