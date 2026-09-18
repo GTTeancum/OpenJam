@@ -106,6 +106,10 @@ uint8_t* GuestPtr(uint32_t addr) {
   return reinterpret_cast<uint8_t*>(kGuestVirtualBase + addr);
 }
 
+uint32_t LoadBE16(const uint8_t* p) {
+  return (uint32_t(p[0]) << 8) | p[1];
+}
+
 uint32_t LoadBE32(const uint8_t* p) {
   return (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16) |
          (uint32_t(p[2]) << 8) | uint32_t(p[3]);
@@ -287,27 +291,9 @@ const Dds* Lookup(const std::string& name) {
 // rows tight, so this only works when the row is already a multiple of 256 -
 // true for any DXT5 at least 64 wide, or DXT1 at least 128, which covers
 // essentially every texture in the game. Anything else is left alone.
-bool WrapDdsAsXpr2(uint8_t* blob) {
-  const uint32_t height = LoadLE32(blob + 12);
-  const uint32_t width = LoadLE32(blob + 16);
+bool WriteXpr2Header(uint8_t* blob, uint32_t width, uint32_t height,
+                     uint32_t format, uint32_t block) {
   if (width == 0 || height == 0 || width > 4096 || height > 4096) {
-    return false;
-  }
-  if (!(LoadLE32(blob + 80) & 0x4)) {
-    return false;
-  }
-  const char* fourcc = reinterpret_cast<const char*>(blob + 84);
-  uint32_t format = 0, block = 0;
-  if (!std::memcmp(fourcc, "DXT1", 4)) {
-    format = kFormatDXT1;
-    block = 8;
-  } else if (!std::memcmp(fourcc, "DXT2", 4) || !std::memcmp(fourcc, "DXT3", 4)) {
-    format = kFormatDXT2_3;
-    block = 16;
-  } else if (!std::memcmp(fourcc, "DXT4", 4) || !std::memcmp(fourcc, "DXT5", 4)) {
-    format = kFormatDXT4_5;
-    block = 16;
-  } else {
     return false;
   }
 
@@ -346,8 +332,61 @@ bool WrapDdsAsXpr2(uint8_t* blob) {
   StoreBE32(d + 8, ((width - 1) & 0x1FFF) | (((height - 1) & 0x1FFF) << 13));
   StoreBE32(d + 12, 0x00000D10u);   // filtering, copied from the stock textures
   StoreBE32(d + 16, 0);             // base mip only
-  StoreBE32(d + 20, 1u << 9);       // 2D
+  // 2D, and "packed mips" set. Not optional: every texture in the stock
+  // archives has that bit, and one without it fails to load.
+  StoreBE32(d + 20, (1u << 9) | (1u << 11));
   return true;
+}
+
+bool WrapDdsAsXpr2(uint8_t* blob) {
+  if (!(LoadLE32(blob + 80) & 0x4)) {   // DDPF_FOURCC
+    return false;
+  }
+  const char* fourcc = reinterpret_cast<const char*>(blob + 84);
+  uint32_t format = 0, block = 0;
+  if (!std::memcmp(fourcc, "DXT1", 4)) {
+    format = kFormatDXT1;
+    block = 8;
+  } else if (!std::memcmp(fourcc, "DXT2", 4) || !std::memcmp(fourcc, "DXT3", 4)) {
+    format = kFormatDXT2_3;
+    block = 16;
+  } else if (!std::memcmp(fourcc, "DXT4", 4) || !std::memcmp(fourcc, "DXT5", 4)) {
+    format = kFormatDXT4_5;
+    block = 16;
+  } else {
+    return false;
+  }
+  return WriteXpr2Header(blob, LoadLE32(blob + 16), LoadLE32(blob + 12), format,
+                         block);
+}
+
+// A texture straight out of a PlayStation 3 archive, which is the same thing
+// in a different envelope: a 128-byte big-endian EA header over the identical
+// linear DXT mip chain. Only three fields are needed, and the payload already
+// begins at 128 where the XPR2 form wants it.
+//
+//     +0x00  u16  0x0105
+//     +0x10  u32  payload offset (0x80)
+//     +0x18  u8   RSX texture format: 0x86 DXT1, 0x87 DXT3, 0x88 DXT5
+//     +0x20  u16  width
+//     +0x22  u16  height
+//
+// This is what lets a PS3 mod's own `.ast` archives be used unconverted. The
+// model data in them is already byte-identical to this build's - both consoles
+// are big-endian PowerPC - so the textures were the only thing in the way.
+bool WrapPs3AsXpr2(uint8_t* blob) {
+  if (LoadBE32(blob + 0x10) != 128) {
+    return false;   // pixel data is not where an XPR2 header would leave it
+  }
+  uint32_t format = 0, block = 0;
+  switch (blob[0x18]) {
+    case 0x86: format = kFormatDXT1;   block = 8;  break;
+    case 0x87: format = kFormatDXT2_3; block = 16; break;
+    case 0x88: format = kFormatDXT4_5; block = 16; break;
+    default: return false;
+  }
+  return WriteXpr2Header(blob, LoadBE16(blob + 0x20), LoadBE16(blob + 0x22),
+                         format, block);
 }
 
 void NbaDdsSubstitute(PPCRegister& r3) {
@@ -356,9 +395,11 @@ void NbaDdsSubstitute(PPCRegister& r3) {
     return;
   }
   uint8_t* blob = GuestPtr(blob_addr);
+  // Two foreign containers get an XPR2 header written over their own, in
+  // place, so the guest loader will take them: a plain DDS, which is what
+  // mods are made in, and the PlayStation 3 archive form, which is what a PS3
+  // mod's `.ast` files are full of. Neither moves its pixel data.
   if (std::memcmp(blob, "DDS ", 4) == 0) {
-    // A texture out of a PlayStation 3 archive. Give it an XPR2 header so the
-    // guest loader will take it; the pixel data does not move.
     if (!WrapDdsAsXpr2(blob)) {
       // Worth a warning rather than silence: a rejected texture is a visible
       // hole in the game, and the reason is always in these three numbers.
@@ -371,6 +412,21 @@ void NbaDdsSubstitute(PPCRegister& r3) {
       }
     } else if (TraceEnabled()) {
       REXLOG_INFO("dlc_textures: wrapped a raw DDS as XPR2");
+    }
+  } else if (blob[0] == 0x01 && blob[1] == 0x05 && blob[0x1A] == 2) {
+    const uint32_t w = LoadBE16(blob + 0x20), h = LoadBE16(blob + 0x22);
+    const uint8_t fmt = blob[0x18];
+    if (!WrapPs3AsXpr2(blob)) {
+      static int complained = 0;
+      if (complained < 40) {
+        ++complained;
+        REXLOG_WARN("dlc_textures: cannot use a {}x{} PS3 texture (format 0x{:02X}) as-is",
+                    w, h, fmt);
+      }
+      return;
+    }
+    if (TraceEnabled()) {
+      REXLOG_INFO("dlc_textures: wrapped a {}x{} PS3 texture as XPR2", w, h);
     }
   }
   if (std::memcmp(blob, "XPR2", 4) != 0) {

@@ -59,6 +59,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import ast_repack
+
 # The port lives in <parent>/port; the game data and DLC live beside it.
 PORT = Path(__file__).resolve().parent.parent
 PARENT = PORT.parent
@@ -70,8 +73,25 @@ SCHEMA = 1
 
 # PS3-only files with no meaning on this build. `.gtf` is the PS3 texture
 # container, where the 360 uses `.xpr`; saveload icons are PS3 save metadata.
+#
+# The two archives are the only ones whose contents really are platform code
+# rather than platform-neutral data, and each was found by watching the game
+# die with one applied and live with it withheld:
+#
+#   rend_misc_big.ast   holds "XFNR" render resources where the 360 build has
+#                       its own; applying the PS3 copy faults during boot.
+#   audio/aemsdata.ast  is the audio engine's bank data, and the two consoles
+#                       do not share a sound format; applying it faults as a
+#                       match loads.
+#
+# Everything else transfers, the textures after conversion (see
+# tools/ast_repack.py) and the rest untouched.
 SKIP_SUFFIXES = (".gtf",)
-SKIP_PATTERNS = (re.compile(r"^xenon/saveload/"),)
+SKIP_PATTERNS = (
+    re.compile(r"^xenon/saveload/"),
+    re.compile(r"^xenon/genbigs/rend_misc_big\.ast$"),
+    re.compile(r"^xenon/bigs/audio/aemsdata\.ast$"),
+)
 
 
 def slugify(text):
@@ -91,6 +111,16 @@ def map_path(rel):
     return rel.replace("ps3/", "xenon/", 1) if rel.startswith("ps3/") else rel
 
 
+def repack_archive(src, dst):
+    """True when src was a PS3 archive and dst now holds the converted form."""
+    try:
+        return ast_repack.repack(str(src), str(dst), quiet=True)
+    except Exception:
+        if Path(dst).exists():
+            Path(dst).unlink()
+        return False
+
+
 def cmd_import(args):
     src = Path(args.source).resolve()
     data = src / "data" if (src / "data").is_dir() else src
@@ -107,7 +137,7 @@ def cmd_import(args):
     if dest.exists():
         shutil.rmtree(dest)
 
-    copied = skipped = 0
+    copied = skipped = repacked = 0
     for src_path, rel in rel_files(data):
         mapped = map_path(rel)
         if mapped.endswith(SKIP_SUFFIXES) or any(p.match(mapped) for p in SKIP_PATTERNS):
@@ -115,7 +145,15 @@ def cmd_import(args):
             continue
         target = dest / "data" / mapped
         target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src_path, target)
+        # An `.ast` full of PS3 textures gets them rewritten as XPR2 on the way
+        # in. Everything else in those archives - models, meshes, skeletons,
+        # animation - is already byte-identical between the two consoles, so
+        # this is the whole of what porting a mod's art amounts to.
+        if not (mapped.lower().endswith(".ast") and
+                repack_archive(src_path, target)):
+            shutil.copy2(src_path, target)
+        else:
+            repacked += 1
         copied += 1
 
     manifest = {
@@ -135,6 +173,9 @@ def cmd_import(args):
 
     print("imported '{}' as {}".format(name, mod_id))
     print("  {} files, {} skipped as PS3-only".format(copied, skipped))
+    if repacked:
+        print("  {} archive(s) had their textures converted to this build's "
+              "format".format(repacked))
     print("  {}".format(dest))
     return 0
 
