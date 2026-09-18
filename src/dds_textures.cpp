@@ -262,12 +262,103 @@ const Dds* Lookup(const std::string& name) {
 
 }  // namespace
 
+// A PS3 archive stores textures as plain DDS files. This build's loader only
+// recognises XPR2, so it rejects them - which is why dropping a PS3 .ast in
+// leaves the menus black.
+//
+// Nothing has to be repacked to fix that. A DDS file opens with a 128-byte
+// header, and an XPR2 header for a single texture fits in 120, so the XPR2
+// form can be written straight over it and the pixel data left exactly where
+// it already is. The layout below mirrors what the real archives use, with
+// the resource record placed to fit:
+//
+//     +0x00  'XPR2'
+//     +0x04  116          pixel data at 116 + 12 = 128, where the DDS put it
+//     +0x08  data size
+//     +0x0C  1            one resource
+//     +0x10  'TX2D'
+//     +0x14  56           resource record base
+//     +0x24  name
+//     +56+12 3, +56+16 1, +56+32 and +56+36 0xFFFF0000
+//     +56+40 descriptor, ending at 120
+//
+// The one thing that must line up is the hardware's requirement that each row
+// of blocks in a linear texture start on a 256-byte boundary. A DDS packs its
+// rows tight, so this only works when the row is already a multiple of 256 -
+// true for any DXT5 at least 64 wide, or DXT1 at least 128, which covers
+// essentially every texture in the game. Anything else is left alone.
+bool WrapDdsAsXpr2(uint8_t* blob) {
+  const uint32_t height = LoadLE32(blob + 12);
+  const uint32_t width = LoadLE32(blob + 16);
+  if (width == 0 || height == 0 || width > 4096 || height > 4096) {
+    return false;
+  }
+  if (!(LoadLE32(blob + 80) & 0x4)) {
+    return false;
+  }
+  const char* fourcc = reinterpret_cast<const char*>(blob + 84);
+  uint32_t format = 0, block = 0;
+  if (!std::memcmp(fourcc, "DXT1", 4)) {
+    format = kFormatDXT1;
+    block = 8;
+  } else if (!std::memcmp(fourcc, "DXT2", 4) || !std::memcmp(fourcc, "DXT3", 4)) {
+    format = kFormatDXT2_3;
+    block = 16;
+  } else if (!std::memcmp(fourcc, "DXT4", 4) || !std::memcmp(fourcc, "DXT5", 4)) {
+    format = kFormatDXT4_5;
+    block = 16;
+  } else {
+    return false;
+  }
+
+  const uint32_t blocks_w = std::max(1u, (width + 3) / 4);
+  const uint32_t blocks_h = std::max(1u, (height + 3) / 4);
+  const uint32_t row_bytes = blocks_w * block;
+  if (row_bytes % kLinearRowAlignment != 0) {
+    return false;  // rows would have to move, and there is no room to move them
+  }
+
+  constexpr uint32_t kRecord = 56;
+  constexpr uint32_t kDesc = kRecord + 40;   // 96, ends at 120
+  std::memset(blob, 0, 128);
+  std::memcpy(blob, "XPR2", 4);
+  StoreBE32(blob + 0x04, 128 - 12);
+  StoreBE32(blob + 0x08, row_bytes * blocks_h);
+  StoreBE32(blob + 0x0C, 1);
+  std::memcpy(blob + 0x10, "TX2D", 4);
+  StoreBE32(blob + 0x14, kRecord);
+  StoreBE32(blob + 0x18, 52);
+  StoreBE32(blob + 0x1C, 24);
+  std::memcpy(blob + 0x24, "strName", 8);
+  StoreBE32(blob + kRecord + 12, 3);
+  StoreBE32(blob + kRecord + 16, 1);
+  StoreBE32(blob + kRecord + 32, 0xFFFF0000u);
+  StoreBE32(blob + kRecord + 36, 0xFFFF0000u);
+
+  uint8_t* d = blob + kDesc;
+  const uint32_t pitch_pixels = (row_bytes / block) * 4;
+  StoreBE32(d + 0, 2u | (((pitch_pixels >> 5) & 0x1FF) << 22));   // type 2, linear
+  StoreBE32(d + 4, format & 0x3F);                                 // endianness 0
+  StoreBE32(d + 8, ((width - 1) & 0x1FFF) | (((height - 1) & 0x1FFF) << 13));
+  StoreBE32(d + 12, 0x00000D10u);   // filtering, copied from the stock textures
+  StoreBE32(d + 16, 0);             // base mip only
+  StoreBE32(d + 20, 1u << 9);       // 2D
+  return true;
+}
+
 void NbaDdsSubstitute(PPCRegister& r3) {
   const uint32_t blob_addr = r3.u32;
   if (!blob_addr) {
     return;
   }
   uint8_t* blob = GuestPtr(blob_addr);
+  if (std::memcmp(blob, "DDS ", 4) == 0) {
+    // A texture out of a PlayStation 3 archive. Give it an XPR2 header so the
+    // guest loader will take it; the pixel data does not move.
+    if (WrapDdsAsXpr2(blob) && TraceEnabled()) {
+      REXLOG_INFO("dlc_textures: wrapped a raw DDS as XPR2");
+    }
+  }
   if (std::memcmp(blob, "XPR2", 4) != 0) {
     return;
   }

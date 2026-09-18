@@ -138,6 +138,8 @@ def pixel_hash(blob):
 
 
 def kind(blob):
+    if blob[:4] == b"DDS ":
+        return "dds"          # the PS3 front-end archives store plain DDS
     if blob[:4] == b"XPR2":
         return "xpr2"
     if len(blob) > 0x24 and blob[0] == 0x01 and blob[1] == 0x05:
@@ -217,13 +219,17 @@ def cmd_export(args):
         except NotImplementedError:
             skipped += 1
             continue
-        if kind(blob) != "ps3":
+        k = kind(blob)
+        if k == "dds":
+            dds = blob       # already what we want
+        elif k == "ps3":
+            try:
+                dds, _ = ps3_to_dds(blob)
+            except ValueError:
+                failed += 1
+                continue
+        else:
             skipped += 1
-            continue
-        try:
-            dds, _ = ps3_to_dds(blob)
-        except ValueError:
-            failed += 1
             continue
         safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in e["name"])
         with open(os.path.join(args.out, safe + ".dds"), "wb") as fh:
@@ -231,7 +237,7 @@ def cmd_export(args):
         done += 1
     print("exported {} texture(s) to {}".format(done, args.out))
     if skipped:
-        print("  {} entry(s) skipped: not a PS3 texture".format(skipped))
+        print("  {} entry(s) skipped: not a texture".format(skipped))
     if failed:
         print("  {} entry(s) failed: unsupported format".format(failed))
     return 0
