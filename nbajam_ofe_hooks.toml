@@ -1,4 +1,18 @@
-# NBA JAM: On Fire Edition - diagnostic mid-ASM hooks
+# NBA JAM: On Fire Edition - mid-ASM hooks
 #
-# No probes active. Regenerate with tools/probe_sites.py <function names>.
+# Regenerate register probes with tools/probe_sites.py <function names>; that
+# tool rewrites this whole file, so keep hand-written entries below in mind
+# before running it.
 template_dir = "templates"
+
+# VP6 video decoder. sub_824E5FD8 writes one reconstructed 8x8 block:
+#   sub_824E5FD8(r3 = destination, r4 = residuals, r5 = plane stride)
+#
+# return_on_true, not ret: the hook decides whether the guest body still runs,
+# so it stays inert unless one of the NBAJAM_VP6_* environment variables is
+# set. An unconditional `ret` would disable the guest function on every run.
+[[midasm_hook]]
+address = 0x824E5FD8
+name = "NbaVp6WriteBlock"
+registers = ["r3", "r4", "r5"]
+return_on_true = true

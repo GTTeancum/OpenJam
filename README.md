@@ -20,8 +20,8 @@ the title; the build reads an extracted XBLA package and never redistributes it.
 | `nbajam_ofe_manifest.toml` | Entry point for codegen |
 | `nbajam_ofe_config.toml` | Hand-derived function boundaries |
 | `nbajam_ofe_gaps.toml` | Functions recovered from gaps discovery missed |
-| `src/` | Kernel stubs, diagnostics, the app class |
-| `tools/` | Gap recovery and guest-debugging tooling |
+| `src/` | Kernel stubs, diagnostics, instruction fixups, the app class |
+| `tools/` | Gap recovery, guest debugging, and the post-codegen instruction repair |
 | `templates/` | One codegen template override |
 
 `generated/` (≈166 MB, 5.7M lines) and `out/` are reproducible and not tracked.
@@ -33,10 +33,26 @@ and a full account of every local change and why it exists.
 
 Boots to gameplay, and runs as the full version rather than a trial. Roughly
 53,000 recompiled functions register with none rejected; all 320 kernel imports
-resolve; graphics, audio, input and the achievement store all initialize.
+resolve; graphics, audio, input and the achievement store all initialize. The
+EA Sports intro video decodes correctly.
 
 Known rough edges: the Xenos backend logs a stream of "invalid" texture fetch
 constant warnings during play, and `memmap:\clips\` is unmapped.
+
+### A recompiler bug worth knowing about
+
+The intro video played with heavy green corruption. The cause was ReXGlue
+v0.10.0 translating `vpkuwus` by writing its destination register one element at
+a time while still reading the sources — correct only when the destination is a
+different register. All three `vpkuwus128` instructions in this image are in the
+VP6 decoder, and all three have the destination as one of their sources.
+
+`tools/fix_vector_aliasing.py` repairs them after codegen. Against an ffmpeg
+decode of the same file the frame goes from 23% of pixels wrong to 0.08%.
+[BUILDING.md](BUILDING.md) has the full account, including how the decoder was
+located in an image with no symbols.
+
+![Intro before and after](screenshots/intro_vp6_before_after.png)
 
 ## Notes
 

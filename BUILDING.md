@@ -77,10 +77,19 @@ exits immediately, and `logs/nbajam_ofe_NNN.log` says only:
 An `assets` junction pointing at `Root` exists in the build folder and is
 harmless, but it is not what makes the game start. The flag is.
 
-`run.ps1` wraps both flags and tails the log afterwards:
+Two more flags matter. `--gpu_plugin=xenos` is mandatory: the Xenos backend is
+loaded at runtime rather than linked, and the cvar defaults to empty, so without
+it the window is black and every `Vd*` kernel call logs "no GPU emulation
+loaded". And `fullscreen` defaults to **true**, so a bare launch takes over the
+whole display.
+
+`run.ps1` wraps all of it, defaults to a 1280x720 window, and tails the log
+afterwards:
 
 ```
 .\run.ps1
+.\run.ps1 -Fullscreen
+.\run.ps1 -Width 1920 -Height 1080
 .\run.ps1 -Config local-debug --log_level=debug
 ```
 
@@ -354,6 +363,75 @@ at `0x82B09CB0` - one of the addresses the prune removed, which is genuinely
 called and needs a correctly-bounded declaration rather than a fragment. The
 recovery loop, with the fragment filter now active, is the mechanism for that.
 
+## The intro video, and the instruction that broke it
+
+The EA Sports intro (`data/common/fmv/EASbrand_eng_HD_W.vp6` - EA's `MVhd`
+container, VP6 video at 1280x720, 109 frames, ADPCM audio) played with heavy
+green corruption in macroblock-aligned bands.
+
+![Intro before and after](screenshots/intro_vp6_before_after.png)
+
+**Root cause: `vpkuwus` is mistranslated when its destination register is also
+one of its sources.** ReXGlue v0.10.0 builds it as eight separate assignments
+into the destination, interleaved with reads of the two sources:
+
+```cpp
+vD.u16[7-i] = saturate(vA.u32[3-i]);
+vD.u16[3-i] = saturate(vB.u32[3-i]);
+```
+
+Registers are held byte-reversed, so `u16[3-i]` and `u32[3-i]` overlap across
+different `i`. Writing `vD.u16[1]` lands on the top half of `vD.u32[0]`, which a
+later iteration still has to read. With `vD` a distinct register that is
+harmless; with `vpkuwus128 v62,v62,v61` two of the four lanes are read after
+they have been overwritten.
+
+There are exactly **three** `vpkuwus128` instructions in the whole 53,000
+function image, all three in the VP6 decoder, and all three alias. That is why
+nothing else in the game misbehaved.
+
+`tools/fix_vector_aliasing.py` rewrites those instructions to call
+`src/rexglue_vector_fixups.h`, which computes the whole result before storing
+any of it. CMake runs it between codegen and compilation so it cannot be
+forgotten after a regeneration; it is idempotent and does not rewrite a file
+whose content would not change, so it never dirties the build.
+
+Measured against an ffmpeg decode of the same file, frame by frame across the
+clip: **23% of pixels wrong before, 0.08% after**, and no green pixels at all.
+The residue is the game's own scaling and rounding, not decode error.
+
+### How it was found
+
+The useful part was narrowing, not guessing.
+
+1. **Rule out the display path.** Decode the file with ffmpeg, capture the
+   port's frame, diff them. The 78% of pixels that were not corrupt matched the
+   reference to a mean error of 0.4 per channel, so texture format, tiling, the
+   YUV to RGB conversion and the scaling were all exact. Only the decoded frame
+   was wrong.
+2. **Find the decoder without symbols.** Rank every recompiled function by its
+   use of *integer* vector instructions. A game's vector math is overwhelmingly
+   floating point, so a codec stands out at once: `sub_824E6310` (3022
+   instructions, the coefficient decoder and IDCT) and a few small helpers
+   around it.
+3. **Read its output out of guest memory.** A mid-ASM hook on the block writer
+   `sub_824E5FD8(dst, residuals, stride)` records the destinations it is called
+   with. Grouping them by stride gives the plane layout exactly - 1376x816 luma
+   with a 48-pixel border, 688x408 chroma, three buffers of 1,684,224 bytes -
+   and from there whole frames can be dumped and diffed. Luma is stored
+   bottom-up; reading it top-down makes the logo look mirrored, which is a good
+   way to lose half an hour.
+4. **Test the translation rather than reading it.** Reading the SDK's vector
+   builders against the PowerPC spec found nothing. `tools/patch_refops.py`
+   swaps ReXGlue's emitted code for chosen opcodes with independent reference
+   implementations in `src/vp6_refops.h`, so each can be tested by building and
+   rerunning. Replacing all 1,559 vector instructions in the decoder fixed the
+   video; bisecting by opcode narrowed it to three instructions.
+
+The decisive step was restricting the swap to instructions whose destination
+register is also a source. That alone fixed it, which named the bug class
+before the specific opcode was known.
+
 ## Tooling
 
 Built during the startup-bug hunt; all are read-only except where noted.
@@ -365,6 +443,13 @@ Built during the startup-bug hunt; all are read-only except where noted.
 - `tools/probe_sites.py` — generates a uniquely-named probe per call site, for attribution
 - `tools/prune_epilogue_gaps.py` — removes declarations that are fragments rather than functions
 - `tools/recover_gaps.py` — the per-gap recovery loop, with the fragment tests built in
+
+Added while fixing the intro video:
+
+- `tools/fix_vector_aliasing.py` - **writes**: repairs `vpkuwus`/`vpkuhus` whose destination is also a source. Run by CMake after codegen.
+- `tools/patch_refops.py` - **writes**: swaps chosen opcodes for the reference implementations in `src/vp6_refops.h`, so a translation can be tested by running it
+- `src/vp6_hooks.cpp` - mid-ASM hook on the VP6 block writer; reports plane geometry and dumps decoded frames. Inert unless `NBAJAM_VP6_*` is set in the environment.
+- `src/guest_profiler.cpp` - instruction-pointer sampler resolved against our own PDB, so a profile reads as guest `sub_<address>` names. Inert unless `NBAJAM_PROFILE_SECONDS` is set.
 
 ## Verified environment facts
 

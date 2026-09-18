@@ -6,12 +6,26 @@
 #
 # metadata_root points at the achievement data extracted from the XEX. The
 # runtime otherwise looks beside the game data, not in the project.
+#
+# gpu_plugin is mandatory too. The Xenos backend is loaded at runtime rather
+# than linked, and the cvar defaults to empty, so without it the runtime comes
+# up in "native rendering mode": the window is black and every Vd* kernel call
+# logs "no GPU emulation loaded".
+#
+# Windowed by default. The SDK's `fullscreen` cvar defaults to TRUE, so a bare
+# launch takes over the whole display. Pass -Fullscreen to opt back in.
 
 param(
     [ValidateSet("local-debug", "local-relwithdebinfo", "local-release")]
     [string]$Config = "local-relwithdebinfo",
 
     [string]$GameRoot = "D:\Programming\GitHub\NBA JAM On Fire Edition\Root",
+
+    # The SDK default is fullscreen; this script inverts it.
+    [switch]$Fullscreen,
+
+    [int]$Width = 1280,
+    [int]$Height = 720,
 
     # Extra flags passed straight through, e.g. --log_level=debug
     [Parameter(ValueFromRemainingArguments = $true)]
@@ -35,13 +49,20 @@ if (-not (Test-Path $GameRoot)) {
 $launchArgs = @(
     "--game_data_root=`"$GameRoot`""
     "--metadata_root=`"$(Join-Path $here 'metadata')`""
+    "--gpu_plugin=xenos"
 )
+if ($Fullscreen) {
+    $launchArgs += "--fullscreen=true"
+} else {
+    $launchArgs += @("--fullscreen=false", "--window_width=$Width", "--window_height=$Height")
+}
 # $Extra is $null when no extra flags were passed; concatenating it straight in
 # puts a null element in the array and Start-Process rejects the whole thing.
 if ($Extra) { $launchArgs += @($Extra | Where-Object { $_ }) }
 
 Write-Host "Launching $exe"
 Write-Host "  game data: $GameRoot"
+Write-Host "  display:   $(if ($Fullscreen) { 'fullscreen' } else { "windowed ${Width}x${Height}" })"
 if ($Extra) { Write-Host "  extra:     $($Extra -join ' ')" }
 
 $logDir = Join-Path (Split-Path -Parent $exe) "logs"
