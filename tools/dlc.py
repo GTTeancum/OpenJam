@@ -55,6 +55,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -225,11 +226,34 @@ def cmd_instance(args):
         link_or_copy(p, target)
         added += 1
 
+    # A PS3 mod's own config files ask for "data/ps3/..." by name - the audio
+    # and commentary system does, and failing those is what sent the game back
+    # to the title screen after Start. Renaming the folder on import moves the
+    # files but not the paths written inside them, so expose the tree under
+    # both spellings. A junction costs nothing; a linked copy is the fallback
+    # where junctions are not available.
+    alias = out / "data" / "ps3"
+    xenon = out / "data" / "xenon"
+    aliased = None
+    if xenon.is_dir() and not alias.exists():
+        try:
+            subprocess.run(["cmd", "/c", "mklink", "/J", str(alias), str(xenon)],
+                           check=True, capture_output=True)
+            aliased = "junction"
+        except Exception:
+            for p, rel in rel_files(xenon):
+                t = alias / rel
+                t.parent.mkdir(parents=True, exist_ok=True)
+                link_or_copy(p, t)
+            aliased = "linked copy"
+
     print("instance for '{}' ({})".format(manifest.get("name", args.mod), args.mod))
     print("  {} from the base game, {} replaced by the mod, {} added".format(
         base, replaced, added))
     if skipped_by_filter:
         print("  {} mod file(s) held back by the filter".format(skipped_by_filter))
+    if aliased:
+        print("  data/ps3 -> data/xenon ({})".format(aliased))
     print("  {}".format(out))
     print("\nRun it with:")
     print('  .\\run.ps1 -GameRoot "{}"'.format(out))

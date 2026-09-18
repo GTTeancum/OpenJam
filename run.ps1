@@ -14,6 +14,11 @@
 #
 # Windowed by default. The SDK's `fullscreen` cvar defaults to TRUE, so a bare
 # launch takes over the whole display. Pass -Fullscreen to opt back in.
+#
+# mnk_mode turns on keyboard control of the virtual pad, and defaults to FALSE
+# in the SDK - so without it the keyboard does nothing at all and the game can
+# only be played with a controller. Start is Enter or X, A is Space, the left
+# stick is WASD, the d-pad is Shift+arrows.
 
 param(
     [ValidateSet("local-debug", "local-relwithdebinfo", "local-release")]
@@ -50,6 +55,7 @@ $launchArgs = @(
     "--game_data_root=`"$GameRoot`""
     "--metadata_root=`"$(Join-Path $here 'metadata')`""
     "--gpu_plugin=xenos"
+    "--mnk_mode=true"
 )
 if ($Fullscreen) {
     $launchArgs += "--fullscreen=true"
