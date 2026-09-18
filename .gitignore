@@ -1,0 +1,20 @@
+# Build output
+out/
+*.log
+
+# Recompiled sources: ~166 MB and 5.7M lines, fully reproducible from the XEX
+# plus the manifest and the override TOMLs. Regenerate with:
+#   cmake --build --preset local-relwithdebinfo --target nbajam_ofe_codegen
+generated/
+
+# Machine-local toolchain and SDK paths. Deliberately not shared: it pins
+# absolute paths to this machine's LLVM, Ninja and ReXGlue install.
+CMakeUserPresets.json
+
+# The game data itself is not ours to distribute.
+/Root/
+/assets/
+
+# Achievement icons are extracted from the XEX; regenerate with
+#   rexglue init --project-name nbajam_ofe --xex-path <xex> achievements <xex> metadata
+metadata/icons/

@@ -1,0 +1,76 @@
+# Launch the recompiled build.
+#
+# game_data_root is mandatory: the documented argv[1] / "assets" fallbacks do
+# not fire in SDK v0.10.0, and without the flag the process exits immediately
+# with "--game_data_root was not provided." in logs/.
+#
+# metadata_root points at the achievement data extracted from the XEX. The
+# runtime otherwise looks beside the game data, not in the project.
+
+param(
+    [ValidateSet("local-debug", "local-relwithdebinfo", "local-release")]
+    [string]$Config = "local-relwithdebinfo",
+
+    [string]$GameRoot = "D:\Programming\GitHub\NBA JAM On Fire Edition\Root",
+
+    # Extra flags passed straight through, e.g. --log_level=debug
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$Extra
+)
+
+$ErrorActionPreference = "Stop"
+$here = Split-Path -Parent $MyInvocation.MyCommand.Path
+$exe = Join-Path $here "out\build\$Config\nbajam_ofe.exe"
+
+if (-not (Test-Path $exe)) {
+    throw "Not built: $exe`nRun: cmake --build --preset $Config -j 10"
+}
+if (-not (Test-Path $GameRoot)) {
+    throw "Game data not found: $GameRoot"
+}
+
+# Both paths contain spaces, and Start-Process does not quote array elements,
+# so each value carries its own quotes or the path is split at the first space.
+# Not named $args: that is a PowerShell automatic variable.
+$launchArgs = @(
+    "--game_data_root=`"$GameRoot`""
+    "--metadata_root=`"$(Join-Path $here 'metadata')`""
+)
+# $Extra is $null when no extra flags were passed; concatenating it straight in
+# puts a null element in the array and Start-Process rejects the whole thing.
+if ($Extra) { $launchArgs += @($Extra | Where-Object { $_ }) }
+
+Write-Host "Launching $exe"
+Write-Host "  game data: $GameRoot"
+if ($Extra) { Write-Host "  extra:     $($Extra -join ' ')" }
+
+$logDir = Join-Path (Split-Path -Parent $exe) "logs"
+$before = @(Get-ChildItem $logDir -Filter *.log -ErrorAction SilentlyContinue |
+            ForEach-Object { $_.Name })
+
+# This is a /SUBSYSTEM:WINDOWS binary, so it detaches immediately. Wait on the
+# process object, or we end up tailing the previous run's log.
+$proc = Start-Process -FilePath $exe -ArgumentList $launchArgs -WorkingDirectory `
+        (Split-Path -Parent $exe) -PassThru
+$proc.WaitForExit()
+$code = $proc.ExitCode
+
+$log = Get-ChildItem $logDir -Filter *.log -ErrorAction SilentlyContinue |
+       Where-Object { $before -notcontains $_.Name } |
+       Sort-Object LastWriteTime -Descending | Select-Object -First 1
+if (-not $log) {
+    $log = Get-ChildItem $logDir -Filter *.log -ErrorAction SilentlyContinue |
+           Sort-Object LastWriteTime -Descending | Select-Object -First 1
+}
+if ($log) {
+    Write-Host "`n--- tail of $($log.Name) ---"
+    Get-Content $log.FullName -Tail 25
+}
+
+$stack = Join-Path (Split-Path -Parent $exe) "crash_stack.txt"
+if (Test-Path $stack) {
+    Write-Host "`n--- crash_stack.txt ---"
+    Get-Content $stack -Tail 25
+}
+
+Write-Host "`nexit code: $code"

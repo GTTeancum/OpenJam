@@ -1,0 +1,308 @@
+#!/usr/bin/env python3
+"""Iteratively recover functions ReXGlue's discovery left in gaps.
+
+Discovery reaches code through direct calls and a vtable scanner. Code that is
+only ever reached through a data table it does not recognise is never marked as
+a function, so it sits in a gap between two discovered functions. The build
+succeeds; the runtime aborts the first time the game makes an indirect call to
+one of those addresses:
+
+    [FATAL] Call to invalid or unregistered function at guest address 0x82B083E0
+
+There is no disassembler available here (the XEX is encrypted and LZX
+compressed), so this uses codegen itself as one. The loop is:
+
+  1. Measure every recompiled function. The generated C++ emits one
+     "// mnemonic" comment per guest instruction, so a function's extent is
+     4 * instruction count, and nbajam_ofe_register.cpp maps address -> name.
+  2. Any run of bytes no function covers is a gap. Declare each one as a
+     function whose `end` is the next known function start.
+  3. Run codegen and read its verdict. Drop anything it could not decode into
+     basic blocks, and anything whose declared bounds made a branch leave the
+     function. Those go on a permanent ban list.
+  4. Repeat. `end` is only an upper bound -- codegen stops at the real end of
+     the function -- so a gap holding several functions yields one per pass and
+     the loop converges.
+
+Run from the project root. Takes a few minutes per iteration.
+"""
+
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+GEN = ROOT / "generated" / "default"
+REGISTER = GEN / "nbajam_ofe_register.cpp"
+GAPS_TOML = ROOT / "nbajam_ofe_gaps.toml"
+MANIFEST = ROOT / "nbajam_ofe_manifest.toml"
+BANLIST = ROOT / "tools" / "gap_banlist.txt"
+REXGLUE = Path(r"D:\Programming\GitHub\rexglue-dist\win-amd64\bin\rexglue.exe")
+
+# Abuts the end of .text; tail data tables, not code.
+TAIL_DATA_START = 0x82B17E1C
+CODE_HI = 0x82B19930
+
+# 4-byte gaps are alignment padding to this image's 8-byte function alignment
+# (27,612 of 27,614 of them sit at end%8 == 4).
+MIN_GAP = 8
+
+# Each pass recovers one function per gap, because `end` is an upper bound and
+# codegen stops at the first function's real end. A gap holding a run of small
+# functions -- the image has tables of near-identical 0x18-byte wrappers --
+# therefore needs one pass per function in the run. State lives in the TOML and
+# the ban list, so re-running the script resumes rather than restarting.
+MAX_ITERS = 40
+
+FN_DEF = re.compile(r"^DEFINE_REX_FUNC\(([A-Za-z_][A-Za-z0-9_]*)\)\s*\{")
+INSN = re.compile(r"^\t// [a-z][a-z0-9_.]*(\s|$)")
+SETFN = re.compile(r"SetFunction\(0x([0-9A-F]+),\s*([A-Za-z_][A-Za-z0-9_]*)\)")
+DECL = re.compile(r'^"0x([0-9A-F]+)"\s*=\s*\{\s*end\s*=\s*0x([0-9A-F]+)')
+
+
+def measure_functions():
+    """Return {start_address: size_in_bytes} for every recompiled function."""
+    text = REGISTER.read_text(encoding="utf-8", errors="replace")
+    addr_of = {m.group(2): int(m.group(1), 16) for m in SETFN.finditer(text)}
+
+    sizes = {}
+    for path in sorted(GEN.glob("nbajam_ofe_recomp.*.cpp")):
+        cur, n = None, 0
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                m = FN_DEF.match(line)
+                if m:
+                    if cur:
+                        sizes[cur] = n
+                    cur, n = m.group(1), 0
+                elif cur and INSN.match(line):
+                    n += 1
+        if cur:
+            sizes[cur] = n
+    return {addr_of[k]: v * 4 for k, v in sizes.items() if k in addr_of}
+
+
+def find_gaps(funcs):
+    addrs = sorted(funcs)
+    gaps = []
+    for i, a in enumerate(addrs):
+        end = a + funcs[a]
+        nxt = addrs[i + 1] if i + 1 < len(addrs) else CODE_HI
+        if end < nxt and (nxt - end) >= MIN_GAP and end < TAIL_DATA_START:
+            gaps.append((end, nxt))
+    return gaps
+
+
+def read_decls():
+    if not GAPS_TOML.exists():
+        return {}
+    out = {}
+    for line in GAPS_TOML.read_text(encoding="utf-8").splitlines():
+        m = DECL.match(line)
+        if m:
+            out[int(m.group(1), 16)] = int(m.group(2), 16)
+    return out
+
+
+def read_banlist():
+    if not BANLIST.exists():
+        return set()
+    vals = set()
+    for line in BANLIST.read_text().splitlines():
+        tok = line.split("#")[0].strip()
+        if tok:
+            vals.add(int(tok, 16))
+    return vals
+
+
+def write_banlist(banned):
+    header = (
+        "# Gap addresses codegen rejected. Do not re-add without evidence:\n"
+        "# either it could not be decoded (padding/data), or the declared\n"
+        "# bounds cut a real function and produced an escaping branch.\n"
+    )
+    body = "\n".join("{:08X}".format(a) for a in sorted(banned))
+    BANLIST.write_text(header + body + "\n", encoding="utf-8", newline="\n")
+
+
+def write_decls(decls, note):
+    lines = [
+        "# NBA JAM: On Fire Edition - recovered gap functions",
+        "#",
+        "# Generated by tools/recover_gaps.py. See that file for the method and",
+        "# BUILDING.md for why this is needed at all. `end` is an upper bound;",
+        "# codegen stops at the real end of each function.",
+        "#",
+        "# " + note,
+        "",
+        "[functions]",
+    ]
+    for a, e in sorted(decls.items()):
+        lines.append('"0x{:08X}" = {{ end = 0x{:08X} }}'.format(a, e))
+    GAPS_TOML.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="\n")
+
+
+def run_codegen(logpath):
+    proc = subprocess.run(
+        [str(REXGLUE), "codegen", str(MANIFEST), "--log-file", str(logpath)],
+        cwd=str(ROOT),
+        capture_output=True,
+        text=True,
+    )
+    return proc.returncode, (proc.stdout or "") + (proc.stderr or "")
+
+
+FN_DEF_ANY = re.compile(r"^DEFINE_REX_FUNC\(([A-Za-z_][A-Za-z0-9_]*)\)")
+SAVE_HELPER = re.compile(r"__savegprlr_(\d+)\(ctx, base\)")
+REST_HELPER = re.compile(r"__restgprlr_(\d+)\(ctx, base\)")
+
+
+def epilogue_fragments(decls):
+    """Declared addresses whose generated body is only a function epilogue.
+
+    A gap can be the *tail* of a function the analyzer already covered. Declaring
+    one produces a "function" that restores non-volatile registers it never
+    saved. That is worse than leaving the gap alone: the address gets registered
+    in the guest function table, and anything dispatching to it restores from
+    stack slots that were never written for the live frame. On this image those
+    slots hold 0xBE, so a caller's frame pointer comes back as 0xBEBEBEBE and
+    the guest stack pointer is destroyed.
+    """
+    bad = set()
+    for path in sorted(GEN.glob("nbajam_ofe_recomp.*.cpp")):
+        lines = path.read_text(encoding="utf-8", errors="replace").split("\n")
+        starts = [i for i, l in enumerate(lines) if FN_DEF_ANY.match(l)]
+        for idx, s in enumerate(starts):
+            name = FN_DEF_ANY.match(lines[s]).group(1)
+            if not name.startswith("sub_"):
+                continue
+            try:
+                addr = int(name[4:], 16)
+            except ValueError:
+                continue
+            if addr not in decls:
+                continue
+            e = starts[idx + 1] if idx + 1 < len(starts) else len(lines)
+            text = "\n".join(lines[s:e])
+            if REST_HELPER.search(text) and not SAVE_HELPER.search(text):
+                bad.add(addr)
+                continue
+            for n in range(14, 32):
+                if not re.search(r"ctx\.r{}\.u64 = REX_LOAD_U64".format(n), text):
+                    continue
+                saved = re.search(r"REX_STORE_U64\([^,]+,\s*ctx\.r{}\.u64\)".format(n), text)
+                helper = any(int(m) <= n for m in SAVE_HELPER.findall(text))
+                if not saved and not helper:
+                    bad.add(addr)
+                    break
+    return bad
+
+
+def parse_rejects(output, logtext):
+    """Addresses codegen could not decode, and branch sites that escaped."""
+    blob = output + "\n" + logtext
+    bad = set()
+    for a in re.findall(r"Function 0x([0-9A-F]+) has no blocks", blob):
+        bad.add(int(a, 16))
+    escaping = set()
+    pat = r"Unresolved (?:conditional branch to|b target) 0x([0-9A-F]+) from 0x([0-9A-F]+)"
+    for m in re.finditer(pat, blob):
+        escaping.add(int(m.group(2), 16))
+    for m in re.finditer(r"bdnz at ([0-9A-F]+) branches outside function to", blob):
+        escaping.add(int(m.group(1), 16))
+    return bad, escaping
+
+
+def owning_decl(site, decls):
+    """The declaration whose range contains this branch site, if any."""
+    for a, e in decls.items():
+        if a <= site < e:
+            return a
+    return None
+
+
+def main():
+    banned = read_banlist()
+    decls = read_decls()
+    print("start: {} declarations, {} banned".format(len(decls), len(banned)))
+
+    for it in range(1, MAX_ITERS + 1):
+        funcs = measure_functions()
+
+        # Snap every existing declaration to the extent codegen actually chose.
+        # `end` is only an upper bound, so a declaration that covered several
+        # functions produced just the first one and the rest of its range is a
+        # fresh gap. Leaving the stale wider `end` in place would make the new
+        # declaration overlap it, which codegen rejects outright:
+        #   [config] Overlapping boundaries: 0x82200A38+0x30 overlaps 0x82200A50+0x18
+        snapped = 0
+        for a in list(decls):
+            if funcs.get(a) and decls[a] != a + funcs[a]:
+                decls[a] = a + funcs[a]
+                snapped += 1
+
+        gaps = find_gaps(funcs)
+        new = {}
+        for lo, hi in gaps:
+            if lo not in decls and lo not in banned:
+                new[lo] = hi
+        print("\n--- iteration {}: {} functions, {} gaps >= {}B, {} new, {} snapped".format(
+            it, len(funcs), len(gaps), MIN_GAP, len(new), snapped))
+
+        # Snapping alone is a reason to run: it means the declarations on disk
+        # do not match what the generated tree was built from, either because a
+        # previous pass failed before codegen accepted them or because a
+        # declaration turned out wider than the function codegen emitted.
+        if not new and not snapped:
+            print("converged: no new gaps")
+            break
+
+        decls.update(new)
+        write_decls(decls, "{} entries, iteration {}.".format(len(decls), it))
+
+        log = ROOT / "codegen_gap{}.log".format(it)
+        rc, out = run_codegen(log)
+        logtext = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
+        bad, escaping = parse_rejects(out, logtext)
+
+        drop = set(bad)
+        for site in escaping:
+            owner = owning_decl(site, decls)
+            if owner is not None:
+                drop.add(owner)
+        frags = epilogue_fragments(decls)
+        drop |= frags
+        drop &= set(decls)
+
+        print("codegen rc={}: {} undecodable, {} escaping branches, "
+              "{} epilogue fragments -> dropping {}".format(
+                  rc, len(bad), len(escaping), len(frags), len(drop)))
+
+        if drop:
+            for a in drop:
+                decls.pop(a, None)
+            banned |= drop
+            write_banlist(banned)
+            write_decls(decls, "{} entries, iteration {} (post-filter).".format(len(decls), it))
+            rc, out = run_codegen(log)
+            logtext = log.read_text(encoding="utf-8", errors="replace") if log.exists() else ""
+            bad2, esc2 = parse_rejects(out, logtext)
+            print("  after filter: rc={}, {} undecodable, {} escaping".format(
+                rc, len(bad2), len(esc2)))
+            if bad2 or esc2:
+                print("  still dirty; next iteration will filter again")
+
+        if rc != 0:
+            print("codegen failed; stopping")
+            return 1
+
+    funcs = measure_functions()
+    remaining = find_gaps(funcs)
+    print("\nfinal: {} functions, {} declarations, {} banned, {} gaps left".format(
+        len(funcs), len(decls), len(banned), len(remaining)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,4 @@
+# NBA JAM: On Fire Edition - diagnostic mid-ASM hooks
+#
+# No probes active. Regenerate with tools/probe_sites.py <function names>.
+template_dir = "templates"

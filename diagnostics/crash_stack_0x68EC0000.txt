@@ -1,0 +1,222 @@
+
+=== access violation: read of host 0x0000000168EC0000  (guest 0x68EC0000) ===
+thread 18368, faulting pc 0x00007FF6C0913C33
+  [-1] __imp__sub_8224E780 + 0x1AC3   (nbajam_ofe_recomp.91.cpp:1910)
+  [ 0] `anonymous namespace'::OnException + 0x63A   (crash_report.cpp:291)
+  [ 1] RtlWow64GetCurrentMachine + 0xAC6
+  [ 2] RtlWow64GetCurrentMachine + 0x265
+  [ 3] KiUserExceptionDispatcher + 0x2E
+  [ 4] __imp__sub_8224E780 + 0x1AC3   (nbajam_ofe_recomp.91.cpp:1910)
+  [ 5] __imp__sub_8224C5C0 + 0x224   (nbajam_ofe_recomp.18.cpp:1098)
+  [ 6] __imp__sub_82245878 + 0x21B   (nbajam_ofe_recomp.133.cpp:934)
+  [ 7] __imp__sub_822453A0 + 0x4FD   (nbajam_ofe_recomp.138.cpp:1096)
+  [ 8] __imp__sub_822A39F0 + 0x311   (nbajam_ofe_recomp.83.cpp:2487)
+  [ 9] __imp__sub_8225AA50 + 0x98   (nbajam_ofe_recomp.130.cpp:1209)
+  [10] __imp__sub_8225AB88 + 0x14C   (nbajam_ofe_recomp.146.cpp:1297)
+  [11] __imp__xstart + 0x843   (nbajam_ofe_recomp.134.cpp:1106)
+  [12] rex::system::XThread::Execute + 0x32B
+  [13] rex::system::XHostThread::Execute + 0x698
+  [14] rex::thread::ThreadStartRoutine + 0xA5
+  [15] BaseThreadInitThunk + 0x17
+  [16] RtlUserThreadStart + 0x2C
+
+host registers at fault:
+  rax = 0x0000000168EC0000   -> guest 0x68EC0000
+  rbx = 0x0000000000000090
+  rcx = 0x0000000060000000
+  rdx = 0x0000000000000000
+  rsi = 0x0000000100000000   -> guest 0x00000000
+  rdi = 0x000001D2E8897A40
+  rbp = 0x000000000000015D
+  rsp = 0x00000078B90FF3B0
+  r8  = 0x000000007FFFFFFF
+  r9  = 0x00000001BEBE2FAA   -> guest 0xBEBE2FAA
+  r10 = 0x0000000000000000
+  r11 = 0x0000000000000000
+  r12 = 0x0000000082006800
+  r13 = 0x00007FF6C1F4DC10
+  r14 = 0x00000000E0000000
+  r15 = 0x0000000182C50000   -> guest 0x82C50000
+guest [0x82006798] = 0x82006790   (printf's default-for-null string pointer)
+guest string [0x8200477C] = "Don't recognise category named '%s' did you mispell?
+"   (assert format string passed to sub_82245878)
+
+faulting page: state=RESERVE protect=0x0 base=0x0000000168EC0000 size=0x7140000
+  (RESERVE means the arena is mapped but this page was never committed;
+   FREE means nothing ever claimed it)
+
+committed guest regions, and search for "AddCategoryAllocator":
+  guest 0x30000000 .. 0x30031000  protect=0x4
+  guest 0x40000000 .. 0x40010000  protect=0x4
+  guest 0x70010000 .. 0x70030000  protect=0x4
+  guest 0x70050000 .. 0x70070000  protect=0x4
+  guest 0x70090000 .. 0x700B0000  protect=0x4
+  guest 0x700D0000 .. 0x700F0000  protect=0x4
+  guest 0x70110000 .. 0x70130000  protect=0x4
+  guest 0x70150000 .. 0x70170000  protect=0x4
+  guest 0x7F000000 .. 0x7FC80000  protect=0x4
+  guest 0x7FC90000 .. 0x7FEA0000  protect=0x4
+  guest 0x7FEB0000 .. 0x80000000  protect=0x4
+  guest 0x80000000 .. 0x80040000  protect=0x4
+  guest 0x82000000 .. 0x82B20000  protect=0x2
+  HIT "AddCategoryAllocator" at guest 0x82003B74
+  HIT "AddCategoryAllocator" at guest 0x82003B9F
+  HIT "AddCategoryAllocator" at guest 0x82016E2D
+  HIT "AddCategoryAllocator" at guest 0x82016EE5
+  guest 0x82B20000 .. 0x83EB0000  protect=0x4
+  guest 0x90000000 .. 0x90040000  protect=0x4
+  guest 0x92000000 .. 0x93EB0000  protect=0x4
+  HIT "AddCategoryAllocator" at guest 0x92003B74
+  HIT "AddCategoryAllocator" at guest 0x92003B9F
+  guest 0xA0000000 .. 0xC0000000  protect=0x4
+  guest 0xC0000000 .. 0xE0000000  protect=0x4
+  guest 0xE0000000 .. 0x00000000  protect=0x4
+  committed regions: 19 (first 24 listed), hits: 8
+
+=== access violation: read of host 0x0000000168EC0000  (guest 0x68EC0000) ===
+thread 18460, faulting pc 0x00007FF678183C73
+  [-1] __imp__sub_8224E780 + 0x1AC3   (nbajam_ofe_recomp.91.cpp:1910)
+  [ 0] `anonymous namespace'::OnException + 0x63A   (crash_report.cpp:291)
+  [ 1] RtlWow64GetCurrentMachine + 0xAC6
+  [ 2] RtlWow64GetCurrentMachine + 0x265
+  [ 3] KiUserExceptionDispatcher + 0x2E
+  [ 4] __imp__sub_8224E780 + 0x1AC3   (nbajam_ofe_recomp.91.cpp:1910)
+  [ 5] __imp__sub_8224C5C0 + 0x224   (nbajam_ofe_recomp.18.cpp:1098)
+  [ 6] __imp__sub_82245878 + 0x21B   (nbajam_ofe_recomp.133.cpp:934)
+  [ 7] __imp__sub_822453A0 + 0x4FD   (nbajam_ofe_recomp.138.cpp:1096)
+  [ 8] __imp__sub_822A39F0 + 0x311   (nbajam_ofe_recomp.83.cpp:2487)
+  [ 9] __imp__sub_8225AA50 + 0x98   (nbajam_ofe_recomp.130.cpp:1209)
+  [10] __imp__sub_8225AB88 + 0x14C   (nbajam_ofe_recomp.146.cpp:1297)
+  [11] __imp__xstart + 0x843   (nbajam_ofe_recomp.134.cpp:1106)
+  [12] rex::system::XThread::Execute + 0x32B
+  [13] rex::system::XHostThread::Execute + 0x698
+  [14] rex::thread::ThreadStartRoutine + 0xA5
+  [15] BaseThreadInitThunk + 0x17
+  [16] RtlUserThreadStart + 0x2C
+
+host registers at fault:
+  rax = 0x0000000168EC0000   -> guest 0x68EC0000
+  rbx = 0x0000000000000090
+  rcx = 0x0000000060000000
+  rdx = 0x0000000000000000
+  rsi = 0x0000000100000000   -> guest 0x00000000
+  rdi = 0x000001C6990C80C0
+  rbp = 0x000000000000015D
+  rsp = 0x0000008CA6CFF680
+  r8  = 0x000000007FFFFFFF
+  r9  = 0x00000001BEBE2FAA   -> guest 0xBEBE2FAA
+  r10 = 0x0000000000000000
+  r11 = 0x0000000000000000
+  r12 = 0x0000000082006800
+  r13 = 0x00007FF6797BDC10
+  r14 = 0x00000000E0000000
+  r15 = 0x0000000182C50000   -> guest 0x82C50000
+guest [0x82006798] = 0x82006790   (printf's default-for-null string pointer)
+guest string [0x8200477C] = "Don't recognise category named '%s' did you mispell?
+"   (assert format string passed to sub_82245878)
+
+faulting page: state=RESERVE protect=0x0 base=0x0000000168EC0000 size=0x7140000
+  (RESERVE means the arena is mapped but this page was never committed;
+   FREE means nothing ever claimed it)
+
+committed guest regions, and search for "AddCategoryAllocator":
+  guest 0x30000000 .. 0x30031000  protect=0x4
+  guest 0x40000000 .. 0x40010000  protect=0x4
+  guest 0x70010000 .. 0x70030000  protect=0x4
+  guest 0x70050000 .. 0x70070000  protect=0x4
+  guest 0x70090000 .. 0x700B0000  protect=0x4
+  guest 0x700D0000 .. 0x700F0000  protect=0x4
+  guest 0x70110000 .. 0x70130000  protect=0x4
+  guest 0x70150000 .. 0x70170000  protect=0x4
+  guest 0x7F000000 .. 0x7FC80000  protect=0x4
+  guest 0x7FC90000 .. 0x7FEA0000  protect=0x4
+  guest 0x7FEB0000 .. 0x80000000  protect=0x4
+  guest 0x80000000 .. 0x80040000  protect=0x4
+  guest 0x82000000 .. 0x82B20000  protect=0x2
+  HIT "AddCategoryAllocator" at guest 0x82003B74
+  HIT "AddCategoryAllocator" at guest 0x82003B9F
+  HIT "AddCategoryAllocator" at guest 0x82016E2D
+  HIT "AddCategoryAllocator" at guest 0x82016EE5
+  guest 0x82B20000 .. 0x83EB0000  protect=0x4
+  guest 0x90000000 .. 0x90040000  protect=0x4
+  guest 0x92000000 .. 0x93EB0000  protect=0x4
+  HIT "AddCategoryAllocator" at guest 0x92003B74
+  HIT "AddCategoryAllocator" at guest 0x92003B9F
+  guest 0xA0000000 .. 0xC0000000  protect=0x4
+  guest 0xC0000000 .. 0xE0000000  protect=0x4
+  guest 0xE0000000 .. 0x00000000  protect=0x4
+  committed regions: 19 (first 24 listed), hits: 8
+
+=== access violation: read of host 0x0000000168EC0000  (guest 0x68EC0000) ===
+thread 19812, faulting pc 0x00007FF64BED3C83
+  [-1] __imp__sub_8224E780 + 0x1AC3   (nbajam_ofe_recomp.91.cpp:1910)
+  [ 0] `anonymous namespace'::OnException + 0x63A   (crash_report.cpp:291)
+  [ 1] RtlWow64GetCurrentMachine + 0xAC6
+  [ 2] RtlWow64GetCurrentMachine + 0x265
+  [ 3] KiUserExceptionDispatcher + 0x2E
+  [ 4] __imp__sub_8224E780 + 0x1AC3   (nbajam_ofe_recomp.91.cpp:1910)
+  [ 5] __imp__sub_8224C5C0 + 0x224   (nbajam_ofe_recomp.18.cpp:1098)
+  [ 6] __imp__sub_82245878 + 0x21B   (nbajam_ofe_recomp.133.cpp:934)
+  [ 7] __imp__sub_822453A0 + 0x4FD   (nbajam_ofe_recomp.138.cpp:1096)
+  [ 8] __imp__sub_822A39F0 + 0x311   (nbajam_ofe_recomp.83.cpp:2487)
+  [ 9] __imp__sub_8225AA50 + 0x98   (nbajam_ofe_recomp.130.cpp:1209)
+  [10] __imp__sub_8225AB88 + 0x14C   (nbajam_ofe_recomp.146.cpp:1297)
+  [11] __imp__xstart + 0x833   (nbajam_ofe_recomp.134.cpp:1103)
+  [12] rex::system::XThread::Execute + 0x32B
+  [13] rex::system::XHostThread::Execute + 0x698
+  [14] rex::thread::ThreadStartRoutine + 0xA5
+  [15] BaseThreadInitThunk + 0x17
+  [16] RtlUserThreadStart + 0x2C
+
+host registers at fault:
+  rax = 0x0000000168EC0000   -> guest 0x68EC0000
+  rbx = 0x0000000000000090
+  rcx = 0x0000000060000000
+  rdx = 0x0000000000000000
+  rsi = 0x0000000100000000   -> guest 0x00000000
+  rdi = 0x00000268204AC200
+  rbp = 0x000000000000015D
+  rsp = 0x000000D97D8FF4F0
+  r8  = 0x000000007FFFFFFF
+  r9  = 0x00000001BEBE2FAA   -> guest 0xBEBE2FAA
+  r10 = 0x0000000000000000
+  r11 = 0x0000000000000000
+  r12 = 0x0000000082006800
+  r13 = 0x00007FF64D50EC10
+  r14 = 0x00000000E0000000
+  r15 = 0x0000000182C50000   -> guest 0x82C50000
+guest [0x82006798] = 0x82006790   (printf's default-for-null string pointer)
+guest string [0x8200477C] = "Don't recognise category named '%s' did you mispell?
+"   (assert format string passed to sub_82245878)
+
+faulting page: state=RESERVE protect=0x0 base=0x0000000168EC0000 size=0x7140000
+  (RESERVE means the arena is mapped but this page was never committed;
+   FREE means nothing ever claimed it)
+
+committed guest regions, and search for "AddCategoryAllocator":
+  guest 0x30000000 .. 0x30031000  protect=0x4
+  guest 0x40000000 .. 0x40010000  protect=0x4
+  guest 0x70010000 .. 0x70030000  protect=0x4
+  guest 0x70050000 .. 0x70070000  protect=0x4
+  guest 0x70090000 .. 0x700B0000  protect=0x4
+  guest 0x700D0000 .. 0x700F0000  protect=0x4
+  guest 0x70110000 .. 0x70130000  protect=0x4
+  guest 0x70150000 .. 0x70170000  protect=0x4
+  guest 0x7F000000 .. 0x7FC80000  protect=0x4
+  guest 0x7FC90000 .. 0x7FEA0000  protect=0x4
+  guest 0x7FEB0000 .. 0x80000000  protect=0x4
+  guest 0x80000000 .. 0x80040000  protect=0x4
+  guest 0x82000000 .. 0x82B20000  protect=0x2
+  HIT "AddCategoryAllocator" at guest 0x82003B74
+  HIT "AddCategoryAllocator" at guest 0x82003B9F
+  HIT "AddCategoryAllocator" at guest 0x82016E2D
+  HIT "AddCategoryAllocator" at guest 0x82016EE5
+  guest 0x82B20000 .. 0x83EB0000  protect=0x4
+  guest 0x90000000 .. 0x90040000  protect=0x4
+  guest 0x92000000 .. 0x93EB0000  protect=0x4
+  HIT "AddCategoryAllocator" at guest 0x92003B74
+  HIT "AddCategoryAllocator" at guest 0x92003B9F
+  guest 0xA0000000 .. 0xC0000000  protect=0x4
+  guest 0xC0000000 .. 0xE0000000  protect=0x4
+  guest 0xE0000000 .. 0x00000000  protect=0x4
+  committed regions: 19 (first 24 listed), hits: 8

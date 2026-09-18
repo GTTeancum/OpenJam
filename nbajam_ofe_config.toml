@@ -1,0 +1,30 @@
+# NBA JAM: On Fire Edition - codegen overrides
+#
+# Manual function declarations for code the analyzer could not reach.
+#
+# Both entries below are the targets of C++ multiple-inheritance adjustor
+# thunks. The thunk adjusts `this` and tail-calls the real virtual method;
+# because the method is only ever entered through a vtable slot or that
+# thunk, nothing in the image references its address directly and function
+# discovery leaves it in a gap.
+#
+# Extents were derived from the neighbouring recompiled functions:
+#   sub_822AE5B0 is 6 instructions (0x18 bytes) and ends exactly at 0x822AE5C8;
+#   the next discovered function starts at 0x822AE5F8.
+#   sub_825EE018 is a 2-instruction thunk ending exactly at 0x825EE020;
+#   the next discovered function starts at 0x825EE038.
+
+# Tried and ruled out: generate_exception_handlers = true. It produces 263
+# exception-handling constructs across 72 files and does not change the startup
+# failure at all. Left off to keep the build minimal.
+
+[functions]
+# Pruning the epilogue-fragment declarations (see BUILDING.md) left three branch
+# targets uncovered, because those addresses are branch targets *inside* a
+# neighbouring function rather than function starts. The right answer is to
+# extend the containing function over them, not to declare the fragment.
+"0x825747B0" = { end = 0x825747E8 }
+"0x8259B6C8" = { end = 0x8259B718 }
+
+"0x822AE5C8" = { end = 0x822AE5F8, name = "vmethod_822AE5C8" }
+"0x825EE020" = { end = 0x825EE038, name = "vmethod_825EE020" }

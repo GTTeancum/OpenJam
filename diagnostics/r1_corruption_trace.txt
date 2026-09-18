@@ -1,0 +1,94 @@
+
+baseline r31 = 0x82BA3DE8 (r1 = 0x7016FCE0)
+    [ 0] NbaTraceR31
+    [ 1] __imp__sub_82558718
+    [ 2] __imp__sub_82558820
+    [ 3] __imp__sub_82B05190
+    [ 4] __imp__sub_82246B10
+    [ 5] __imp__xstart
+    [ 6] rex::system::XThread::Execute
+    [ 7] rex::system::XHostThread::Execute
+    [ 8] rex::thread::ThreadStartRoutine
+    [ 9] BaseThreadInitThunk
+    [10] RtlUserThreadStart
+
+*** r31 POISONED = 0xBEBEBEBE (r1 = 0x7016FAF0) ***
+    [ 0] NbaTraceR31
+    [ 1] __imp__sub_82558718
+    [ 2] __imp__sub_82558820
+    [ 3] __imp__sub_82AF88E8
+    [ 4] __imp__sub_82246B10
+    [ 5] __imp__xstart
+    [ 6] rex::system::XThread::Execute
+    [ 7] rex::system::XHostThread::Execute
+    [ 8] rex::thread::ThreadStartRoutine
+    [ 9] BaseThreadInitThunk
+    [10] RtlUserThreadStart
+
+*** r31 POISONED = 0xBEBEBEBE (r1 = 0x7016FAF0) ***
+    [ 0] NbaTraceR31
+    [ 1] __imp__sub_82558718
+    [ 2] __imp__sub_82558820
+    [ 3] __imp__sub_82AF88E8
+    [ 4] __imp__sub_82246B10
+    [ 5] __imp__xstart
+    [ 6] rex::system::XThread::Execute
+    [ 7] rex::system::XHostThread::Execute
+    [ 8] rex::thread::ThreadStartRoutine
+    [ 9] BaseThreadInitThunk
+    [10] RtlUserThreadStart
+
+*** r1 BROKEN by indirect call to 0x82AF88E8: 0x7016FDA0 -> 0xBEBEC02E ***
+    [ 0] NbaCheckR1
+    [ 1] __imp__sub_82246B10
+    [ 2] __imp__xstart
+    [ 3] rex::system::XThread::Execute
+    [ 4] rex::system::XHostThread::Execute
+    [ 5] rex::thread::ThreadStartRoutine
+    [ 6] BaseThreadInitThunk
+    [ 7] RtlUserThreadStart
+
+=== indirect -> NtCreateFile (0x82B1884C) ===
+  r1(stack)=0xBEBE431E [committed]
+  r3=0xBEBE437E r4=0x80100080 r5=0xBEBE4396 r6=0xBEBE438E
+  r7=0x00000000 [committed]
+  r8=0x00000080 [committed]
+  r9=0x00000003 r10=0x00000001
+    [ 0] NbaTraceIndirect
+    [ 1] __imp__sub_8254B250
+    [ 2] __imp__sub_82256198
+    [ 3] __imp__sub_822566C0
+    [ 4] __imp__sub_82251AD0
+    [ 5] __imp__sub_8224CB18
+    [ 6] __imp__sub_822A39F0
+    [ 7] __imp__sub_8225AA50
+    [ 8] __imp__sub_8225AB88
+    [ 9] __imp__xstart
+    [10] rex::system::XThread::Execute
+    [11] rex::system::XHostThread::Execute
+    [12] rex::thread::ThreadStartRoutine
+    [13] BaseThreadInitThunk
+    [14] RtlUserThreadStart
+
+=== indirect -> NtReadFile (0x82B1891C) ===
+  r1(stack)=0xBEBE42DE [committed]
+  r3=0xF800002C r4=0x00000000 r5=0x00000000 r6=0x00000000
+  r7=0xBEBE432E [committed]
+  r8=0xBEBE477E [committed]
+  r9=0x00007000 r10=0x00000000
+  buf as text = 0xBEBE477E ""
+    [ 0] NbaTraceIndirect
+    [ 1] __imp__sub_8254B5C8
+    [ 2] __imp__sub_822578A0
+    [ 3] __imp__sub_82257EC0
+    [ 4] __imp__sub_82558910
+    [ 5] __imp__sub_82558BA8
+    [ 6] __imp__sub_822A39F0
+    [ 7] __imp__sub_8225AA50
+    [ 8] __imp__sub_8225AB88
+    [ 9] __imp__xstart
+    [10] rex::system::XThread::Execute
+    [11] rex::system::XHostThread::Execute
+    [12] rex::thread::ThreadStartRoutine
+    [13] BaseThreadInitThunk
+    [14] RtlUserThreadStart
