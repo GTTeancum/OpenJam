@@ -26,3 +26,12 @@ return_on_true = true
 address = 0x823FC250
 name = "NbaDdsSubstitute"
 registers = ["r3"]
+
+# Scripted controller input, for testing without taking window focus. Sits on
+# the instruction after the XamInputGetState call in sub_8299C658, so the
+# XINPUT_STATE at r1+208 is already filled and the game has not read it yet.
+# Inert unless NBAJAM_INPUT_SCRIPT is set.
+[[midasm_hook]]
+address = 0x8299C6D4
+name = "NbaScriptedInput"
+registers = ["r1", "r26", "r3"]

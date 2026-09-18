@@ -314,8 +314,12 @@ bool WrapDdsAsXpr2(uint8_t* blob) {
   const uint32_t blocks_w = std::max(1u, (width + 3) / 4);
   const uint32_t blocks_h = std::max(1u, (height + 3) / 4);
   const uint32_t row_bytes = blocks_w * block;
-  if (row_bytes % kLinearRowAlignment != 0) {
-    return false;  // rows would have to move, and there is no room to move them
+  // The pitch field holds the row in pixels >> 5, so it can only describe a
+  // row that is a whole number of 32-pixel groups. A DDS packs its rows tight,
+  // and they cannot be moved - there is no spare room in the blob - so a
+  // width that is not a multiple of 32 would need padding this cannot do.
+  if (width % 32 != 0) {
+    return false;
   }
 
   constexpr uint32_t kRecord = 56;
@@ -355,7 +359,17 @@ void NbaDdsSubstitute(PPCRegister& r3) {
   if (std::memcmp(blob, "DDS ", 4) == 0) {
     // A texture out of a PlayStation 3 archive. Give it an XPR2 header so the
     // guest loader will take it; the pixel data does not move.
-    if (WrapDdsAsXpr2(blob) && TraceEnabled()) {
+    if (!WrapDdsAsXpr2(blob)) {
+      // Worth a warning rather than silence: a rejected texture is a visible
+      // hole in the game, and the reason is always in these three numbers.
+      static int complained = 0;
+      if (complained < 40) {
+        ++complained;
+        REXLOG_WARN("dlc_textures: cannot use a {}x{} {:.4s} DDS as-is",
+                    LoadLE32(blob + 16), LoadLE32(blob + 12),
+                    reinterpret_cast<const char*>(blob + 84));
+      }
+    } else if (TraceEnabled()) {
       REXLOG_INFO("dlc_textures: wrapped a raw DDS as XPR2");
     }
   }

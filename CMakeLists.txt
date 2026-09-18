@@ -21,6 +21,7 @@ set(NBAJAMOFE_SOURCES
     src/nbajam_probes.cpp
     src/vp6_hooks.cpp
     src/dds_textures.cpp
+    src/scripted_input.cpp
 )
 
 if(REXPORT_CRASH_REPORT AND WIN32)
