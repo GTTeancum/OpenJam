@@ -240,6 +240,34 @@ removing it cannot fix or break anything. Turn it off with
 For guest *register* state, prefer a ReXGlue `[[midasm_hook]]` — this handler
 sees host frames, not PPC registers.
 
+### `src/nbajam_ofe_app.h` — full version rather than trial
+
+XBLA titles decide trial-versus-owned from `XamContentGetLicenseMask`, where
+each bit is a granted license and bit 0 conventionally means purchased. ReXGlue
+returns whatever the `license_mask` CVar holds, and that **defaults to 0** — so
+every recompiled XBLA title comes up as a trial out of the box. NBA JAM does
+exactly that; it ships a whole `data/xenon/fe/bounce/screens/trial` tree.
+
+The extracted package carries a LIVE signature with License 0 granting bit 0, so
+1 is what a real console reports for an owned copy. `OnPreSetup` fills that in.
+
+Two details worth knowing:
+
+- It only fills in a mask that is still zero. The config file and the command
+  line are both applied in `SetupEnvironment`, *before* this hook runs in
+  `SetupPresentation`, so setting it unconditionally would silently override
+  whatever was asked for. Guarding on zero keeps `--license_mask=3` working.
+- It cannot preserve an explicit `--license_mask=0`, which is indistinguishable
+  from the default. To see the trial-only screens, comment out the assignment.
+
+The resulting mask is logged at boot, because the game does not query it until
+well into the front end and the log is otherwise the only way to confirm it
+without playing:
+
+```
+[info] [core] license_mask = 1 (full version)
+```
+
 ### `metadata/`
 
 12 achievements and their icons, extracted from the XEX with

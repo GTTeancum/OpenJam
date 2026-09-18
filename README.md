@@ -31,9 +31,9 @@ and a full account of every local change and why it exists.
 
 ## Status
 
-Boots to gameplay. Roughly 53,000 recompiled functions register with none
-rejected; all 320 kernel imports resolve; graphics, audio, input and the
-achievement store all initialize.
+Boots to gameplay, and runs as the full version rather than a trial. Roughly
+53,000 recompiled functions register with none rejected; all 320 kernel imports
+resolve; graphics, audio, input and the achievement store all initialize.
 
 Known rough edges: the Xenos backend logs a stream of "invalid" texture fetch
 constant warnings during play, and `memmap:\clips\` is unmapped.
