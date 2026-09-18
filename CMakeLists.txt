@@ -5,6 +5,11 @@
 cmake_minimum_required(VERSION 3.25)
 project(nbajam_ofe LANGUAGES CXX)
 
+# RC is only needed to carry the executable's icon (res/app.rc).
+if(WIN32)
+    enable_language(RC)
+endif()
+
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -23,6 +28,10 @@ set(NBAJAMOFE_SOURCES
     src/dds_textures.cpp
     src/scripted_input.cpp
 )
+
+if(WIN32)
+    list(APPEND NBAJAMOFE_SOURCES res/app.rc)
+endif()
 
 if(REXPORT_CRASH_REPORT AND WIN32)
     list(APPEND NBAJAMOFE_SOURCES src/crash_report.cpp)

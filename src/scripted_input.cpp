@@ -168,6 +168,21 @@ void NbaScriptedInput(PPCRegister& r1, PPCRegister& r26, PPCRegister& r3) {
   }
   const uint64_t t = now - g_first_tick;
 
+  // Once the schedule has run out, hand the pad back to whoever is really
+  // holding one, so a script can drive the game as far as some screen and
+  // then let a person take over. The virtual pad stays in place while the
+  // kernel reports nothing plugged in, so the game never sees a controller
+  // vanish in the middle of a session.
+  constexpr uint64_t kHandBackAfterMs = 500;
+  if (t > g_steps.back().release_at + kHandBackAfterMs && r3.u32 == 0) {
+    static bool said = false;
+    if (!said) {
+      said = true;
+      REXLOG_INFO("input script: finished; a real controller has the pad now");
+    }
+    return;
+  }
+
   uint16_t inject = 0;
   int index = -1;
   for (size_t i = 0; i < g_steps.size(); ++i) {

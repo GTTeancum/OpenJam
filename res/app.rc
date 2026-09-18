@@ -1,0 +1,12 @@
+// Windows resources for the port's executable.
+//
+// The first icon resource in ID order is the one Explorer and the taskbar
+// use, so this one is 1 and nothing else claims a lower number.
+//
+// The artwork is the game's own title-screen logo, taken from a frame the
+// port rendered itself and cleaned up: background crushed to black, a vignette
+// to clear the bokeh, and a little bloom put back so the flames still glow.
+// Sizes 48 and above carry the full lockup; 32 and below drop the wordmark and
+// keep the flaming ball, because at that size the text is unreadable mush.
+
+1 ICON "nbajam_ofe.ico"
