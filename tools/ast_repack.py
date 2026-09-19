@@ -85,6 +85,8 @@ RSX_FORMATS = {
     0xA5: (6, 4, 1, 2, 0x00000C14),
 }
 
+# A PS3 archive pads its uncompressed levels out to this; compressed ones are
+# stored tight.
 LINEAR_ROW_ALIGN = 256
 
 
@@ -253,6 +255,48 @@ def is_ps3_texture(b):
     return 0 < w <= 4096 and 0 < h <= 4096
 
 
+# A DDS is the other container a mod can arrive in - johnz1's Legends ships
+# 4307 of them, mostly the front end's atlases - and its blocks need no
+# reordering either, exactly as src/dds_textures.cpp found for the DDS files a
+# mod drops in loose. Asking for the 8-in-16 swap the stock archives use turns
+# every one of them into colour noise.
+#
+# Doing it here rather than at run time is what fixes the small ones. The
+# runtime rewrites a header in place with nowhere to put padding, so it has to
+# refuse any texture whose rows do not already start on a 256-byte boundary -
+# which a 32x32 DXT5 glyph does not, and those were the scrambled ones.
+#
+# fourCC -> (XPR2 format code, bytes per unit, unit size in texels, endianness,
+# swizzle).
+DDS_FORMATS = {
+    b"DXT1": (18, 8, 4, 0, 0x00000D10),
+    b"DXT3": (19, 16, 4, 0, 0x00000D10),
+    b"DXT5": (20, 16, 4, 0, 0x00000D10),
+}
+DDS_UNCOMPRESSED = (6, 4, 1, 2, 0x00000C14)
+
+
+def is_dds(b):
+    return len(b) > 0x80 and b[:4] == b"DDS " and         struct.unpack_from("<I", b, 4)[0] == 124
+
+
+def dds_to_xpr2(b, name):
+    """A DDS texture, whose blocks are in PC order."""
+    h, w = struct.unpack_from("<II", b, 0x0C)
+    fourcc = bytes(b[0x54:0x58])
+    if fourcc in DDS_FORMATS:
+        fmt, unit, texels, endian, swizzle = DDS_FORMATS[fourcc]
+    elif struct.unpack_from("<I", b, 0x58)[0] == 32:
+        fmt, unit, texels, endian, swizzle = DDS_UNCOMPRESSED
+    else:
+        return None
+    if not (0 < w <= 4096 and 0 < h <= 4096):
+        return None
+    row = max(1, (w + texels - 1) // texels) * unit
+    return build_xpr2(name, w, h, fmt, unit, texels, endian, swizzle,
+                      b[0x80:], row)
+
+
 # Every XPR2 texture in the stock archives carries the same 28 bytes in front
 # of its fetch constant, whatever the texture is. Taken from the 360 build's
 # own ge_ball_big.ast rather than invented.
@@ -261,26 +305,31 @@ XPR2_RECORD_PREFIX = bytes.fromhex(
     "ffff0000" "ffff0000")
 
 
-def ps3_to_xpr2(b, name):
-    """PS3 texture -> XPR2 resource with linear, unswizzled pixel data.
+def build_xpr2(name, w, h, fmt, unit, texels, endian, swizzle, src, src_pitch):
+    """An XPR2 resource with linear, untiled pixel data.
+
+    A 360 texture is an XPR2 resource whose header ends in a GPU texture fetch
+    constant. The pixel data it points at is normally tiled, but the fetch
+    constant can also describe a plain linear surface - which is what both a
+    PS3 payload and a DDS already are, so the conversion is a new header over
+    the same blocks with the tiling bit cleared and the row stride declared.
 
     The name matters. A stock texture stores its own name, lower case, at
     +0x24, and that is what binds a model's material to it - a texture written
     out under the wrong name loads as nothing and the model dereferences null.
     """
-    fmt, unit, texels, endian, swizzle = RSX_FORMATS[b[0x18]]
-    w, h = struct.unpack_from(">HH", b, 0x20)
     rows = max(1, (h + texels - 1) // texels)
     row = max(1, (w + texels - 1) // texels) * unit
-    pitch = (row + LINEAR_ROW_ALIGN - 1) // LINEAR_ROW_ALIGN * LINEAR_ROW_ALIGN
-    # Compressed levels are stored tight in a PS3 archive; uncompressed ones
-    # already have their rows padded out to 256 bytes. Measured, not assumed:
-    # across ge_player_big.ast all 1210 DXT textures match the tight layout and
-    # all 5 of the 32-bit ones match the padded layout.
-    src_pitch = pitch if texels == 1 else row
-
-    src = b[0x80:]
-    if len(src) < src_pitch * rows:
+    # The row stride is not the width. Measured across 735 stock front-end
+    # textures, every one declares a pitch of its width rounded up to a
+    # multiple of 128 texels and never less than 128: 32 wide says 128, 144
+    # says 256, 272 and 360 both say 384. The hardware reads rows at that
+    # stride whatever the header claims, which is why a 32x32 glyph padded to
+    # any smaller figure comes out torn, with slices of itself below where
+    # they belong.
+    pitch_texels = max(128, (w + 127) // 128 * 128)
+    pitch = (pitch_texels // texels) * unit
+    if len(src) < src_pitch * (rows - 1) + row:
         return None
     pixels = bytearray(pitch * rows)
     for y in range(rows):
@@ -315,8 +364,7 @@ def ps3_to_xpr2(b, name):
     hdr[0x24:0x24 + len(label)] = label
     hdr[record:record + 28] = XPR2_RECORD_PREFIX
 
-    pitch_pixels = (pitch // unit) * texels
-    struct.pack_into(">I", hdr, desc + 0, 2 | ((pitch_pixels >> 5) & 0x1FF) << 22)
+    struct.pack_into(">I", hdr, desc + 0, 2 | ((pitch_texels >> 5) & 0x1FF) << 22)
     struct.pack_into(">I", hdr, desc + 4, (fmt & 0x3F) | ((endian & 3) << 6))
     struct.pack_into(">I", hdr, desc + 8,
                      ((w - 1) & 0x1FFF) | (((h - 1) & 0x1FFF) << 13))
@@ -329,16 +377,34 @@ def ps3_to_xpr2(b, name):
     return bytes(hdr) + bytes(pixels)
 
 
+def ps3_to_xpr2(b, name):
+    """A PS3 texture, whose blocks are already in the order the 360 GPU reads."""
+    fmt, unit, texels, endian, swizzle = RSX_FORMATS[b[0x18]]
+    w, h = struct.unpack_from(">HH", b, 0x20)
+    row = max(1, (w + texels - 1) // texels) * unit
+    # Compressed levels are stored tight in a PS3 archive; uncompressed ones
+    # already have their rows padded out to 256 bytes. Measured, not assumed:
+    # across ge_player_big.ast all 1210 DXT textures match the tight layout and
+    # all 5 of the 32-bit ones match the padded layout.
+    src_pitch = ((row + LINEAR_ROW_ALIGN - 1) // LINEAR_ROW_ALIGN *
+                 LINEAR_ROW_ALIGN) if texels == 1 else row
+    return build_xpr2(name, w, h, fmt, unit, texels, endian, swizzle,
+                      b[0x80:], src_pitch)
+
+
 def repack(src, dst, quiet=False):
     a = Archive(src)
     payloads = {}
     converted = kept = failed = 0
     for e in a.entries:
         blob = a.read(e)
-        if not is_ps3_texture(blob):
+        if is_ps3_texture(blob):
+            out = ps3_to_xpr2(blob, e["name"])
+        elif is_dds(blob):
+            out = dds_to_xpr2(blob, e["name"])
+        else:
             kept += 1
             continue
-        out = ps3_to_xpr2(blob, e["name"])
         if out is None:
             failed += 1
             continue
