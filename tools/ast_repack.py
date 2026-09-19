@@ -44,16 +44,24 @@ header over the same blocks, with three fields doing the work:
     endianness 0
     pitch      the row stride, in pixels >> 5
 
-Rows are padded out to 256 bytes because that is what the hardware wants from
-a linear surface, and the pitch field is set to the padded stride. Being able
-to pad is the advantage of doing this offline: the runtime path in
-src/dds_textures.cpp rewrites a header in place with no room to move anything,
-so it has to refuse textures whose rows do not already land correctly. Here
-any size works.
+The pitch is not the width. Measured across 735 stock front-end textures,
+every one declares its width rounded up to a multiple of 128 texels and never
+less than 128 - 32 wide says 128, 144 says 256, 272 and 360 both say 384. The
+hardware reads rows at that stride whatever the header claims, so the rows are
+laid out to match. Being able to pad them is the advantage of doing this
+offline: the runtime path in src/dds_textures.cpp rewrites a header in place
+with no room to move anything.
 
 Only the base mip level is kept. A linear mip chain has its own packing rules
 on this hardware, and a texture that does not minify is a much smaller problem
 than one that does not appear.
+
+The third container
+-------------------
+
+A mod also brings plain DDS - johnz1's Legends ships 4307 of them, the whole
+front-end atlas set - and so, it turns out, does the stock 360 game. Those are
+converted too, with one exception: see dds_is_the_games_own.
 
 Usage:
     python tools/ast_repack.py <in.ast> <out.ast>
@@ -277,11 +285,17 @@ DDS_UNCOMPRESSED = (6, 4, 1, 2, 0x00000C14)
 
 
 def is_dds(b):
-    return len(b) > 0x80 and b[:4] == b"DDS " and         struct.unpack_from("<I", b, 4)[0] == 124
+    return (len(b) > 0x80 and b[:4] == b"DDS " and
+            struct.unpack_from("<I", b, 4)[0] == 124)
 
 
-def dds_to_xpr2(b, name):
-    """A DDS texture, whose blocks are in PC order."""
+def dds_to_xpr2(b, _name):
+    """A DDS texture, whose blocks are in PC order.
+
+    Named the way the game names its own: every texture in a front-end archive
+    is called strName, the stock ones included, and strName is what the
+    runtime writes when it wraps one of these in place.
+    """
     h, w = struct.unpack_from("<II", b, 0x0C)
     fourcc = bytes(b[0x54:0x58])
     if fourcc in DDS_FORMATS:
@@ -293,7 +307,7 @@ def dds_to_xpr2(b, name):
     if not (0 < w <= 4096 and 0 < h <= 4096):
         return None
     row = max(1, (w + texels - 1) // texels) * unit
-    return build_xpr2(name, w, h, fmt, unit, texels, endian, swizzle,
+    return build_xpr2("strName", w, h, fmt, unit, texels, endian, swizzle,
                       b[0x80:], row)
 
 
@@ -392,15 +406,36 @@ def ps3_to_xpr2(b, name):
                       b[0x80:], src_pitch)
 
 
+def dds_is_the_games_own(path):
+    """Whether the DDS in this archive is the disc's business rather than ours.
+
+    DDS is not a mod's invention: the stock 360 game ships thousands of them in
+    its own archives, and src/dds_textures.cpp wraps one in an XPR2 header in
+    place as it is loaded. That in-place wrap has nowhere to put padding and
+    declares the row stride as the texture's own width, which the hardware does
+    not honour below 128 texels - so anything narrower comes out torn, with
+    slices of itself below where it belongs. Converting those here, where the
+    rows can be laid out properly, is what fixes them.
+
+    The front-end packs under bigs/ are the exception, and not a small one:
+    converting their textures takes the game down on the team select screen,
+    reading through a null texture, every time. The stock build fills those
+    same packs with the same DDS, so whatever reads them wants exactly what
+    the disc has. They are left alone, and nothing in them looked wrong.
+    """
+    return "bigs" in str(path).replace("\\", "/").split("/")
+
+
 def repack(src, dst, quiet=False):
     a = Archive(src)
+    convert_dds = not dds_is_the_games_own(src)
     payloads = {}
     converted = kept = failed = 0
     for e in a.entries:
         blob = a.read(e)
         if is_ps3_texture(blob):
             out = ps3_to_xpr2(blob, e["name"])
-        elif is_dds(blob):
+        elif is_dds(blob) and convert_dds:
             out = dds_to_xpr2(blob, e["name"])
         else:
             kept += 1
