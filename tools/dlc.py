@@ -39,7 +39,8 @@ which import leaves behind.
 `instance` builds a complete game root for a chosen mod: every base game file,
 with the mod's files in place of the ones it replaces. It uses hard links, so
 an 850 MB mod instance costs kilobytes and takes seconds rather than copying.
-Point `--game_data_root` at the result.
+Point `--game_data_root` at the result. It also puts this port's main menu in
+- see tools/frontend.py - so the instance lists the mods it was built from.
 
 Usage:
     python tools/dlc.py list
@@ -61,6 +62,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ast_repack
+import frontend
 
 # The port lives in <parent>/port; the game data and DLC live beside it.
 PORT = Path(__file__).resolve().parent.parent
@@ -217,12 +219,22 @@ def link_or_copy(src, dst):
         shutil.copy2(src, dst)
 
 
+# The base game is a choice like any other: an instance of it still wants this
+# port's menu, and the panel still wants to list what is installed - with
+# nothing marked active.
+BASE = "base"
+
+
 def cmd_instance(args):
     mods = {m.get("id", p.name): (p, m) for p, m in load_mods()}
-    if args.mod not in mods:
-        print("no mod '{}'. Known: {}".format(args.mod, ", ".join(sorted(mods)) or "none"))
+    if args.mod == BASE:
+        mod_path, manifest = None, {"name": "the base game"}
+    elif args.mod in mods:
+        mod_path, manifest = mods[args.mod]
+    else:
+        print("no mod '{}'. Known: {}".format(
+            args.mod, ", ".join(sorted(mods) + [BASE])))
         return 1
-    mod_path, manifest = mods[args.mod]
 
     out = Path(args.out).resolve() if args.out else INSTANCE_ROOT / args.mod
     if out.exists():
@@ -241,8 +253,8 @@ def cmd_instance(args):
 
     overrides = {}
     skipped_by_filter = 0
-    mod_data = mod_path / "data"
-    if mod_data.is_dir():
+    mod_data = (mod_path / "data") if mod_path else None
+    if mod_data and mod_data.is_dir():
         for p, rel in rel_files(mod_data):
             key = "data/" + rel
             if wanted(key):
@@ -288,6 +300,15 @@ def cmd_instance(args):
                 link_or_copy(p, t)
             aliased = "linked copy"
 
+    # The menu this port shows is not the one on the disc: the dead Xbox Live
+    # icons are gone, the last two are text, and the JAMnet panel lists the
+    # mods instead of apologising for the servers. It is applied here because
+    # this is where the list of mods is known.
+    front = []
+    if not args.stock_menu:
+        front = frontend.apply(out, [m for _p, m in load_mods()],
+                               None if args.mod == BASE else args.mod)
+
     print("instance for '{}' ({})".format(manifest.get("name", args.mod), args.mod))
     print("  {} from the base game, {} replaced by the mod, {} added".format(
         base, replaced, added))
@@ -295,6 +316,8 @@ def cmd_instance(args):
         print("  {} mod file(s) held back by the filter".format(skipped_by_filter))
     if aliased:
         print("  data/ps3 -> data/xenon ({})".format(aliased))
+    for line in front:
+        print("  {}".format(line))
     print("  {}".format(out))
     print("\nRun it with:")
     print('  .\\run.ps1 -GameRoot "{}"'.format(out))
@@ -320,10 +343,12 @@ def main(argv):
     p.set_defaults(func=cmd_list)
 
     p = sub.add_parser("instance", help="build a game root with a mod applied")
-    p.add_argument("mod")
+    p.add_argument("mod", help="a mod id, or '%s' for the game on its own" % BASE)
     p.add_argument("--out")
     p.add_argument("--include", action="append", metavar="GLOB",
                    help="only apply mod files matching this (repeatable)")
+    p.add_argument("--stock-menu", action="store_true",
+                   help="leave the front end exactly as the disc has it")
     p.add_argument("--exclude", action="append", metavar="GLOB",
                    help="do not apply mod files matching this (repeatable)")
     p.set_defaults(func=cmd_instance)

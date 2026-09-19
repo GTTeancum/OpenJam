@@ -361,8 +361,8 @@ def neutral_filler(n):
     return bytes(out)
 
 
-def cmd_mainmenu(args):
-    """Rebuild the main menu without changing any length.
+def rebuild_menu(scr, drop=None, convert=None, retoken=None):
+    """Make the main menu this port's: no dead icons, six rows of text.
 
     Each entry is a self-contained run of bytecode that builds an object and
     appends it to the menu array. Overwriting one with instructions that do
@@ -370,51 +370,61 @@ def cmd_mainmenu(args):
     changes it. Either way every byte position in the file stays where it was.
 
     That matters more than it sounds. Removing the bytes outright and
-    recomputing every position in the payload - which tools/apt_movie.py can do,
-    and does correctly by every check available - still leaves the screen blank
-    or faulting on a raw file offset. Something in the loader rebuilds pointers
-    from the file in a way this does not yet account for. Until that is
-    understood, an edit that moves nothing is the one that can be trusted, and
-    it is enough for this job.
+    recomputing every position in the payload - which tools/apt_movie.py can
+    do, and does correctly by every check available - still leaves the screen
+    blank or faulting on a raw file offset. Something in the loader rebuilds
+    pointers from the file in a way this does not yet account for. Until that
+    is understood, an edit that moves nothing is the one that can be trusted,
+    and it is enough for this job.
     """
-    scr = Screen(args.source)
+    drop = list(DEAD_XBOX_LIVE if drop is None else drop)
+    convert = list(AS_TEXT if convert is None else convert)
+    retoken = list(RETOKEN if retoken is None else retoken)
+
     fn = menu_function(scr)
-    items, _ = menu_items(scr, fn)
-    by_label = {i["label"]: i for i in items}
-
-    drop = list(args.drop or DEAD_XBOX_LIVE)
-    convert = [tuple((a.split("=", 1) + [None])[:2]) for a in args.totext]         if args.totext else [(n, None) for n in AS_TEXT]
-
-    missing = [n for n in drop + [c[0] for c in convert] if n not in by_label]
+    items = {i["label"]: i for i in menu_items(scr, fn)[0]}
+    missing = [n for n in drop + [c[0] if isinstance(c, tuple) else c
+                                  for c in convert] if n not in items]
     if missing:
         raise SystemExit("this screen has no %s" % ", ".join(missing))
 
-    print("%s: menu builder at 0x%05X, %d bytes" %
-          (os.path.basename(args.source), fn["at"], fn["size"]))
-
-    for label, rename in convert:
-        item = by_label[label]
+    log = []
+    for entry in convert:
+        label, rename = entry if isinstance(entry, tuple) else (entry, None)
+        item = items[label]
         if not item["icon"]:
             raise SystemExit("%s is already a text entry" % label)
         if rename:
             retag(scr, item, rename)
         make_text(scr, item)
-        print("   %-30s icon -> text%s" %
-              (label, ", now reads %s" % rename if rename else ""))
-
+        log.append("%-30s icon -> text%s"
+                   % (label, ", now reads %s" % rename if rename else ""))
     for label in drop:
-        item = by_label[label]
+        item = items[label]
         n = item["end"] - item["start"]
         scr.apt[item["start"]:item["end"]] = neutral_filler(n)
-        print("   %-30s removed (%d bytes, replaced in place)" % (label, n))
-
-    if not args.totext:
-        for label, token in RETOKEN:
-            scr.point_token(label, token)
-            print("   %-30s now reads the token %s" % (label, token))
+        log.append("%-30s removed (%d bytes, replaced in place)" % (label, n))
+    for label, token in retoken:
+        scr.point_token(label, token)
+        log.append("%-30s now reads the token %s" % (label, token))
 
     scr.disassemble(fn["code"], fn["size"])     # must still decode cleanly
-    after, _ = menu_items(scr, fn)
+    return log, menu_items(scr, fn)[0]
+
+
+def cmd_mainmenu(args):
+    """rebuild_menu from the command line, and say what each row will read."""
+    scr = Screen(args.source)
+    convert = ([tuple((a.split("=", 1) + [None])[:2]) for a in args.totext]
+               if args.totext else None)
+    print("%s: menu builder at 0x%05X, %d bytes"
+          % (os.path.basename(args.source), menu_function(scr)["at"],
+             menu_function(scr)["size"]))
+    log, after = rebuild_menu(scr, drop=args.drop, convert=convert,
+                              retoken=[] if args.totext else None)
+    for line in log:
+        print("   " + line)
+
     db = locdb.LocDb(args.loc) if args.loc else None
     if db is not None and args.loc_dest:
         for token, text in RETEXT:
@@ -442,6 +452,73 @@ def cmd_mainmenu(args):
     return 0
 
 
+def reshape_field(scr, name, width=None, height=None, size=None,
+                  x=None, y=None, align=None):
+    """Change the box a named text field lays its text out in.
+
+    A screen's text is drawn inside a fixed rectangle, and a string longer
+    than the rectangle simply stops being drawn - which is what turns a list
+    of mods into four lines and nothing else. The width, height, alignment,
+    point size and position are each a single number in the movie, so
+    changing them moves nothing. Returns what the field was before, and where
+    the two records that describe it live.
+    """
+    import apt_movie                          # imports this module in turn
+    p = apt_movie.Payload(bytes(scr.apt))
+    p.character(struct.unpack_from(">I", scr.const, 0x14)[0])
+    body = apt_movie.text_field(p, name)
+    place = apt_movie.placement(p, name)
+    was = field_shape(scr, body, place)
+    for value, at in ((width, body + apt_movie.TEXT_WIDTH),
+                      (height, body + apt_movie.TEXT_HEIGHT),
+                      (size, body + apt_movie.TEXT_SIZE),
+                      (x, place + apt_movie.PLACE_X),
+                      (y, place + apt_movie.PLACE_Y)):
+        if value is not None:
+            struct.pack_into(">f", scr.apt, at, value)
+    if align is not None:
+        struct.pack_into(">I", scr.apt, body + apt_movie.TEXT_ALIGN,
+                         apt_movie.ALIGNMENTS[align])
+    return was, body, place
+
+
+def field_shape(scr, body, place):
+    import apt_movie
+    w, h = struct.unpack_from(">2f", scr.apt, body + apt_movie.TEXT_WIDTH)
+    align = struct.unpack_from(">I", scr.apt, body + apt_movie.TEXT_ALIGN)[0]
+    size = struct.unpack_from(">f", scr.apt, body + apt_movie.TEXT_SIZE)[0]
+    x, y = struct.unpack_from(">2f", scr.apt, place + apt_movie.PLACE_X)
+    names = {v: k for k, v in apt_movie.ALIGNMENTS.items()}
+    return "%.0f x %.0f at (%.0f, %.0f), %s, %.0fpt" % (
+        w, h, x, y, names.get(align, align), size)
+
+
+def cmd_field(args):
+    """Show a named text field, and reshape it.
+
+    A screen's text is laid out in a fixed box, and a string longer than the
+    box simply stops being drawn - which is what turns a list of mods into
+    four lines and nothing else. Width, height, alignment, point size and
+    position are all single numbers sitting in the movie, so changing them
+    moves nothing.
+    """
+    scr = Screen(args.source)
+    print("%s: %s" % (os.path.basename(args.source), args.name))
+    was, body, place = reshape_field(
+        scr, args.name, width=args.width, height=args.height, size=args.size,
+        x=args.x, y=args.y, align=args.align)
+    print("   now    %s" % was)
+    now = field_shape(scr, body, place)
+    if now == was:
+        return 0
+    print("   to     %s" % now)
+    if not args.dest:
+        raise SystemExit("give a destination to write the change")
+    scr.save(args.dest)
+    print("   wrote %s" % args.dest)
+    return 0
+
+
 def cmd_list(args):
     scr = Screen(args.source)
     print("%d constants, %d functions" % (len(scr.constants), len(scr.functions())))
@@ -463,6 +540,7 @@ def cmd_items(args):
 
 
 def main(argv):
+    import apt_movie
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -481,6 +559,14 @@ def main(argv):
                    help="entry to draw as text instead of an icon, optionally "
                         "relabelled (repeatable)")
     p.set_defaults(func=cmd_mainmenu)
+    p = sub.add_parser("field", help="show or reshape a named text field")
+    p.add_argument("source"); p.add_argument("name")
+    p.add_argument("dest", nargs="?")
+    p.add_argument("--width", type=float); p.add_argument("--height", type=float)
+    p.add_argument("--size", type=float, help="point size")
+    p.add_argument("--x", type=float); p.add_argument("--y", type=float)
+    p.add_argument("--align", choices=sorted(apt_movie.ALIGNMENTS))
+    p.set_defaults(func=cmd_field)
     args = ap.parse_args(argv)
     return args.func(args)
 

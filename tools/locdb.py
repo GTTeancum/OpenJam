@@ -43,13 +43,19 @@ moves, so no offset, no record and no hash has to change - the same rule that
 makes the screens safe to edit. The tree is left alone too: it already codes
 every character the game uses, and rebuilding it would move every string.
 
+The file cannot grow. Appending a string and correcting both lengths in the
+header - the file's size, and where the strings stop - gives a database the
+game reads far enough to crash on, every time; whatever else it checks, a
+longer file does not survive it. A record's offset, on the other hand, can be
+aimed anywhere in the file, which is what LocDb.space uses to find room for
+text that will not fit where it is.
+
 Usage:
     python tools/locdb.py <eng_us.db>                 dump every string
     python tools/locdb.py <eng_us.db> TXT_EXIT_GAME   one token
     python tools/locdb.py <eng_us.db> --find "EXIT"   search the text
     python tools/locdb.py <in.db> --set TOKEN=TEXT --out <out.db>
 """
-
 import argparse
 import struct
 import sys
@@ -154,21 +160,102 @@ class LocDb:
             self._ends = dict(zip(order, order[1:] + [len(self.buf) - self.base]))
         return self._ends
 
-    def rewrite(self, token, text):
-        """Put `text` where `token`'s text is, if it fits in the same bytes."""
+    def _record(self, token):
         for i in range(self.records):
             name, at, _h, _p = struct.unpack_from(">4I", self.buf, 0x78 + 16 * i)
             if at + 2 < len(self.buf) - self.base and \
                     self._string(name, NAME_WIDTH) == token:
-                break
-        else:
-            raise KeyError("%s is not in %s" % (token, self.path))
+                return 0x78 + 16 * i, at
+        raise KeyError("%s is not in %s" % (token, self.path))
+
+    def rewrite(self, token, text):
+        """Put `text` where `token`'s text is, if it fits in the same bytes."""
+        _rec, at = self._record(token)
         new, room = self.encode(text), self._extent()[at] - at
         if len(new) > room:
             raise ValueError("%r needs %d bytes, %s has %d"
                              % (text, len(new), token, room))
         self.buf[self.base + at:self.base + at + len(new)] = new
         self.strings[token] = text
+
+    def _spans(self):
+        """Every string in the blob, in the order they are stored."""
+        out = []
+        for i in range(self.records):
+            name, text, _h, _p = struct.unpack_from(">4I", self.buf, 0x78 + 16 * i)
+            if max(name, text) + 2 >= len(self.buf) - self.base:
+                continue
+            rec = 0x78 + 16 * i
+            for field, off, width in ((0, name, NAME_WIDTH), (4, text, TEXT_WIDTH)):
+                s = self._string(off, width)
+                out.append({"at": off, "len": len(self.encode(s, width)),
+                            "rec": rec, "field": field, "token":
+                            self._string(name, NAME_WIDTH), "width": width})
+        out.sort(key=lambda s: s["at"])
+        return out
+
+    def space(self, want, expendable):
+        """Find `want` bytes of blob to reuse, taken from text that cannot show.
+
+        Nothing can be added to this database. A longer file is refused at
+        load, and the strings are packed end to end with not one byte spare.
+        What there is instead is a great deal of text an offline build can
+        never reach - an online SDK's worth of lobbies, clubs and invitations
+        - and a run of those, adjacent in the blob, is room.
+
+        The records that lose their text are not left pointing into the middle
+        of whatever is written over it. Each is aimed at a short string that is
+        still intact - itself one of the expendable ones, so that no live
+        token ends up with a second record claiming its name.
+        """
+        spans = self._spans()
+        run, total = [], 0
+        for s in spans:
+            if not expendable(s["token"]):
+                run, total = [], 0
+                continue
+            if run and s["at"] != run[-1]["at"] + run[-1]["len"]:
+                run, total = [], 0                  # a gap means a separate run
+                continue
+            run.append(s)
+            total += s["len"]
+            if total >= want:
+                break
+        else:
+            raise ValueError("no run of %d expendable bytes in %s"
+                             % (want, self.path))
+
+        taken = {id(s) for s in run}
+        stand = {}
+        for w in (NAME_WIDTH, TEXT_WIDTH):
+            spare = [s for s in spans if s["width"] == w
+                     and expendable(s["token"]) and id(s) not in taken]
+            if not spare:
+                raise ValueError("nothing expendable left to stand in for the "
+                                 "%d bytes taken" % total)
+            stand[w] = min(spare, key=lambda s: s["len"])["at"]
+        for s in run:
+            struct.pack_into(">I", self.buf, s["rec"] + s["field"],
+                             stand[s["width"]])
+            self.strings.pop(s["token"], None)
+        self._ends = None
+        return run[0]["at"], total
+
+    def set(self, token, text, expendable=None):
+        """Replace a token's text, borrowing space only if it will not fit."""
+        try:
+            self.rewrite(token, text)
+            return False
+        except ValueError:
+            if expendable is None:
+                raise
+        new = self.encode(text)
+        at, _room = self.space(len(new), expendable)
+        self.buf[self.base + at:self.base + at + len(new)] = new
+        rec, _old = self._record(token)
+        struct.pack_into(">I", self.buf, rec + 4, at)
+        self.strings[token] = text
+        return True
 
     def save(self, path):
         open(path, "wb").write(bytes(self.buf))

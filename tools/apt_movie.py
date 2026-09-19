@@ -59,6 +59,8 @@ class Payload:
         self.done = {}
         self.pointers = {}
         self.sizes = []   # (field holding a code length, the block it belongs to)
+        self.places = []  # (name, character id, body) for each named placement
+        self.table = (0, 0)   # the movie's character pointer table
 
     # -- primitives ------------------------------------------------------
     def mark(self, start, length, what):
@@ -122,6 +124,7 @@ class Payload:
         self.mark(off + 8, 4, "movie unknown")
         n, at = self.listing(off + 12, "characters")
         self.mark(at, n * 4, "character pointer table")
+        self.table = (n, at)
         for i in range(n):
             p = self.pointer(at + i * 4)
             if p:                      # empty slots are filled by imports
@@ -175,7 +178,9 @@ class Payload:
             flags = self.u32(body)
             size = 60 if not (flags & PLACE_OBJECT_HAS_CLIP_ACTION) else 64
             self.mark(body, size, "place object")
-            self.string(self.pointer(body + 44))
+            who = self.string(self.pointer(body + 48))
+            if who:
+                self.places.append((who, self.u32(body + 8), body))
         else:
             self.notes.append((off, 4, "UNKNOWN frame item %d" % kind))
 
@@ -337,6 +342,50 @@ def rebuild(p, cuts):
         if lost:
             struct.pack_into(">I", out, nf, size - lost)
     return bytes(out)
+
+
+def text_field(payload, name):
+    """Where the Text character behind a named field keeps its shape.
+
+    A screen names an instance, not a character: `txtStatusMessage` is a
+    PlaceObject carrying a name and a character id, and the id indexes the
+    movie's character table. The character it lands on holds the box the text
+    is laid out in, which is what decides how much of a long string is ever
+    seen.
+    """
+    for who, char, _body in payload.places:
+        if who == name:
+            break
+    else:
+        raise KeyError("nothing named %s in this screen" % name)
+    n, at = payload.table
+    if char >= n:
+        raise ValueError("%s places character %d of %d" % (name, char, n))
+    off = payload.pointer(at + char * 4)
+    rec = payload.done.get(off)
+    if not rec or rec["type"] != "Text":
+        raise ValueError("%s is a %s, not a text field"
+                         % (name, rec["type"] if rec else "missing character"))
+    return off + 16
+
+
+def placement(payload, name):
+    """Where a named instance is put: the body of its PlaceObject.
+
+    The position is the translation of the matrix that places it, six floats
+    in at +12, so moving something is two numbers and no change of length.
+    """
+    for who, _char, body in payload.places:
+        if who == name:
+            return body
+    raise KeyError("nothing named %s in this screen" % name)
+
+
+# A Text character, from its body: the box it lays text out in, how that text
+# is aligned in the box, and the size it is drawn at. Alignment is SWF's.
+TEXT_WIDTH, TEXT_HEIGHT, TEXT_ALIGN, TEXT_SIZE = 8, 12, 20, 28
+PLACE_X, PLACE_Y = 28, 32
+ALIGNMENTS = {"left": 0, "right": 1, "center": 2, "justify": 3}
 
 
 def load(path):
