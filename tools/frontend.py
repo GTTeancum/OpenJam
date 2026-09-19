@@ -39,8 +39,33 @@ STRINGS = "data/xenon/loc/{}.db"
 # The panel's message field, sized and placed for a paragraph in the middle of
 # an empty panel. A list wants the whole panel, from the top, ranged left.
 PANEL_FIELD = "txtStatusMessage"
-PANEL_BOX = {"width": 420.0, "height": 424.0, "x": 40.0, "y": 50.0,
+PANEL_BOX = {"width": 430.0, "height": 424.0, "x": 46.0, "y": 44.0,
              "align": "left"}
+
+# A card behind each row. There is no way to add an object to a screen, so
+# these are four the panel already has and no longer uses: two it hides when
+# there is no leaderboard, which offline is always, and two it simply leaves
+# empty. Each is pointed at the panel's own frame art - the same nine-slice
+# the panel itself is drawn from - so a card looks like it belongs.
+# There is no box around the active mod, and the design asks for one: orange
+# around it, blue around the rest. Three things stop it, and together they
+# stop it completely.
+#
+# A screen cannot be given new objects - that is the whole rule this port
+# edits front ends under - so a box has to be something the panel already
+# places and no longer uses. There are four: two the panel hides when it has
+# no leaderboard, two it leaves empty. But the row highlight, the obvious
+# candidate, is positioned by the list component every frame, so moving it in
+# the movie does nothing; and the other three answer to coordinate spaces that
+# are not the panel's, landing off the edge of it.
+#
+# And the part that settles it: the colour in a PlaceObject is not honoured.
+# Only its alpha is. Tinting one band pure red and another pure blue left both
+# exactly the grey they already were, so even a box in the right place could
+# not be orange.
+#
+# What would work is a real display object, which means adding to the movie,
+# which means moving bytes - see tools/apt_movie.py for why that does not.
 
 # Where the mod list is written. It is the "cannot reach the servers" message,
 # which is what the panel shows when it has no feed - which offline is always.
@@ -50,7 +75,11 @@ PANEL_TEXT = "TXT_JAMNET_REQUIRED_CONNECTION"
 # It takes BACK as well, so that a restart cannot happen by accident in a
 # match - see src/mod_swap.cpp for why the runtime cannot simply tell which
 # screen is up.
-FOOTER_Y = ("TXT_DOWNLOAD_CONTENT", "+BACK Next mod")
+FOOTER_Y = ("TXT_DOWNLOAD_CONTENT", "Activate mod (+BACK)")
+
+# And one button taken off it: Share the Shove! recommended the game to a
+# friend over Xbox Live.
+FOOTER_DROP = "CODE_SQUARE"
 
 # Space for the mod list is borrowed from the online lobby's strings, which an
 # offline build can never reach. See LocDb.space.
@@ -110,6 +139,7 @@ def apply(root, mods=(), active=None, language="eng_us"):
 
     scr = apt.Screen(str(menu))
     _log, rows = apt.rebuild_menu(scr)
+    apt.drop_helpbar_entry(scr, FOOTER_DROP)
     scr.save(replace(menu))
     done.append("main menu: %d icons out, %d rows of text"
                 % (len(apt.DEAD_XBOX_LIVE) + len(apt.AS_TEXT),
@@ -122,7 +152,7 @@ def apply(root, mods=(), active=None, language="eng_us"):
 
     db = locdb.LocDb(str(strings))
     for token, text in apt.RETEXT + (FOOTER_Y,):
-        db.rewrite(token, text)
+        db.set(token, text, expendable=expendable)
     text = panel_text(mods, active)
     db.set(PANEL_TEXT, text, expendable=expendable)
     db.save(replace(strings))

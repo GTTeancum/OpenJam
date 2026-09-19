@@ -493,6 +493,65 @@ def field_shape(scr, body, place):
         w, h, x, y, names.get(align, align), size)
 
 
+def drop_helpbar_entry(scr, code):
+    """Take one button off the bar along the bottom of a screen.
+
+    The bar is built by pushing a button code into one array and a localized
+    string into another, then handing both to SetHelpbar. An entry is the run
+    from the push of the code to the push of its label, so blanking that run
+    removes the button and leaves the rest of the bar as it was.
+    """
+    want = scr.constant(code)
+    push = scr.constant("push")
+    for fn in scr.functions():
+        ins = scr.disassemble(fn["code"], fn["size"])
+        if not any(op == 0xB2 and a == scr.constant("SetHelpbar") for _, op, a in ins):
+            continue
+        for i, (at, op, arg) in enumerate(ins):
+            if op != 0xAF or arg != want:
+                continue
+            start = at
+            while start > fn["code"] and scr.apt[start] != 0xAE:   # PUSHVALUEOFVAR
+                start -= 1
+            pushes = 0
+            for j in range(i, len(ins)):
+                if ins[j][1] == 0xB2 and ins[j][2] == push:
+                    pushes += 1
+                    if pushes == 2:
+                        end = ins[j][0] + 2
+                        scr.apt[start:end] = neutral_filler(end - start)
+                        return True
+    return False
+
+
+def show_always(scr, name):
+    """Stop a screen hiding one of its own objects.
+
+    A panel built for a leaderboard turns most of itself off when there is no
+    leaderboard, which offline is always. Each of those is one statement -
+    push the object, name the field, push false, set it - so blanking the run
+    leaves the object exactly where the movie put it, visible. Returns how
+    many it silenced.
+    """
+    field = scr.constant("_visible")
+    want = scr.constant(name)
+    done = 0
+    for fn in scr.functions():
+        ins = scr.disassemble(fn["code"], fn["size"])
+        for i in range(2, len(ins) - 2):
+            at, op, arg = ins[i]
+            if op != 0xA2 or arg != field:
+                continue
+            if ins[i + 1][1] != 0x74 or ins[i + 2][1] != 0x4F:   # false, setmember
+                continue
+            if ins[i - 1][1] != 0xAF or ins[i - 1][2] != want:
+                continue
+            start, end = ins[i - 2][0], ins[i + 2][0] + 1
+            scr.apt[start:end] = neutral_filler(end - start)
+            done += 1
+    return done
+
+
 def place(scr, name, char=None, x=None, y=None, sx=None, sy=None, colour=None):
     """Move, resize, recolour or repoint one named instance on a screen.
 
