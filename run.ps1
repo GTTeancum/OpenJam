@@ -51,12 +51,27 @@ if (-not (Test-Path $GameRoot)) {
 # Both paths contain spaces, and Start-Process does not quote array elements,
 # so each value carries its own quotes or the path is split at the first space.
 # Not named $args: that is a PowerShell automatic variable.
+# Each mod keeps its own saves. tools/dlc.py roots records where, in the game
+# root's mods.list, because every mod is the same title and the runtime files
+# saved content under the title alone - so without this they would share one.
+$saveRoot = $null
+$modList = Join-Path $GameRoot "mods.list"
+if (Test-Path $modList) {
+    $active = (Select-String -Path $modList -Pattern '^active\s+(.+)$').Matches.Groups[1].Value.Trim()
+    foreach ($line in Get-Content $modList) {
+        if ($line -notmatch '^mod\s') { continue }
+        $f = ($line -replace '^mod\s+', '') -split "`t"
+        if ($f.Count -ge 3 -and $f[0].Trim() -eq $active) { $saveRoot = $f[2].Trim() }
+    }
+}
+
 $launchArgs = @(
     "--game_data_root=`"$GameRoot`""
     "--metadata_root=`"$(Join-Path $here 'metadata')`""
     "--gpu_plugin=xenos"
     "--mnk_mode=true"
 )
+if ($saveRoot) { $launchArgs += "--user_data_root=`"$saveRoot`"" }
 if ($Fullscreen) {
     $launchArgs += "--fullscreen=true"
 } else {
@@ -68,6 +83,7 @@ if ($Extra) { $launchArgs += @($Extra | Where-Object { $_ }) }
 
 Write-Host "Launching $exe"
 Write-Host "  game data: $GameRoot"
+if ($saveRoot) { Write-Host "  saves:     $saveRoot" }
 Write-Host "  display:   $(if ($Fullscreen) { 'fullscreen' } else { "windowed ${Width}x${Height}" })"
 if ($Extra) { Write-Host "  extra:     $($Extra -join ' ')" }
 
