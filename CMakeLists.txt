@@ -27,6 +27,7 @@ set(NBAJAMOFE_SOURCES
     src/vp6_hooks.cpp
     src/dds_textures.cpp
     src/scripted_input.cpp
+    src/apt_trace.cpp
 )
 
 if(WIN32)

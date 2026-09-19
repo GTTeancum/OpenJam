@@ -35,3 +35,12 @@ registers = ["r3"]
 address = 0x8299C6D4
 name = "NbaScriptedInput"
 registers = ["r1", "r26", "r3"]
+
+# Front-end script tracing. sub_82330438 is the ActionScript execution loop;
+# it is handed a block of bytecode in r4 and its length in r6. Logging the
+# blocks a screen runs, and diffing that against an edited copy of the screen,
+# shows where the edited one stops. Inert unless NBAJAM_APT_TRACE is set.
+[[midasm_hook]]
+address = 0x82330438
+name = "NbaAptBlock"
+registers = ["r4", "r6"]
