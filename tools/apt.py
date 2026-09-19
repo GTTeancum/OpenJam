@@ -36,6 +36,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import ast_repack
+import locdb
 
 MAGIC = bytes.fromhex("9876543212345678")   # sits between a function header and its code
 
@@ -97,13 +98,13 @@ class Screen:
         self.path = path
         self.archive = ast_repack.Archive(path)
         self.apt = self.apt_index = None
-        self.const = None
+        self.const = self.const_index = None
         for e in self.archive.entries:
             b = self.archive.read(e)
             if b[:8] == b"Apt Data":
                 self.apt, self.apt_index = bytearray(b), e["index"]
             elif b[:17] == b"Apt constant file":
-                self.const = b
+                self.const, self.const_index = bytearray(b), e["index"]
         if self.apt is None or self.const is None:
             raise ValueError("{}: not an APT screen".format(path))
         self.constants = self._constants()
@@ -187,8 +188,53 @@ class Screen:
             return "%s %d ; %s" % (s, arg, self.constants[arg])
         return "%s %d" % (s, arg)
 
+    def token(self, label):
+        """The text token a menu label reads.
+
+        The screen builds `bounce.screens.Menus.MainMenu` as a long run of
+        `PUSHREGISTER 1; PUSHCONST <HAL_NAME>; PUSHCONST <TXT_NAME>;
+        SETMEMBER`, and that run sits outside any function - it is the movie's
+        own frame code - which is why it never appears in a listing of the
+        screen's functions. It is the table that turns a menu entry's label
+        into something the language database can answer.
+        """
+        want = self.constant(label)
+        if want > 0xFF:
+            return None
+        for p in range(len(self.apt) - 6):
+            if self.apt[p] != 0xA2 or self.apt[p + 1] != want:
+                continue
+            if self.apt[p + 2] == 0xA3 and self.apt[p + 5] == 0x4F:
+                return self.constants[struct.unpack_from(">H", self.apt, p + 3)[0]]
+            if self.apt[p + 2] == 0xA2 and self.apt[p + 4] == 0x4F:
+                return self.constants[self.apt[p + 3]]
+        return None
+
+    def point_token(self, label, token):
+        """Make a menu label read a different token.
+
+        This edits the table itself - the `PUSHCONST` that supplies the token -
+        rather than the string pool. Repointing a pool entry looks equivalent
+        and is not: the pool's offsets run in ascending order, and a screen
+        whose order is broken comes up with its text shifted, showing other
+        screens' strings and raw token names. The operand is two bytes and
+        changes nothing else.
+        """
+        want, to = self.constant(label), self.constant(token)
+        if want > 0xFF:
+            raise ValueError("%s is constant %d, too far for a byte operand"
+                             % (label, want))
+        for p in range(len(self.apt) - 6):
+            if self.apt[p] != 0xA2 or self.apt[p + 1] != want:
+                continue
+            if self.apt[p + 2] == 0xA3 and self.apt[p + 5] == 0x4F:
+                struct.pack_into(">H", self.apt, p + 3, to)
+                return
+        raise ValueError("%s is not in the screen's token table" % label)
+
     def save(self, path):
-        self.archive.write(path, {self.apt_index: bytes(self.apt)})
+        self.archive.write(path, {self.apt_index: bytes(self.apt),
+                                  self.const_index: bytes(self.const)})
 
 
 def menu_function(scr):
@@ -242,24 +288,62 @@ def strip_icon(scr, item):
     raise ValueError("%s has no field count to adjust" % item["label"])
 
 
-def relabel(scr, body, old, new):
-    """Point an entry at a different HAL_ constant, and its description with it."""
-    out = bytearray(body)
-    for a, b in ((old, new), (old + "_DESCRIPTION", new + "_DESCRIPTION")):
-        oi, ni = scr.constant(a), scr.constant(b)
-        for p in range(len(out) - 1):
-            if out[p] == 0xAF and out[p + 1] == oi:  # GETNAMEDMEMBER
-                out[p + 1] = ni
+def retag(scr, item, new):
+    """Point an entry at a different label, and at the matching description.
+
+    Both are read as `bounce.screens.Menus.MainMenu.<HAL_NAME>`, so switching
+    one is a single operand byte - provided the constant is already in the
+    screen's pool, which is the only kind of rename available without moving
+    anything. `HAL_OPTIONS` is there because the sub-menu behind this entry
+    already uses it.
+    """
+    for old, dest in ((item["label"], new),
+                      (item["label"] + "_DESCRIPTION", new + "_DESCRIPTION")):
+        want, to = scr.constant(old), scr.constant(dest)
+        if to > 0xFF:
+            raise ValueError("%s is constant %d, too far for a byte operand"
+                             % (dest, to))
+        for at, op, arg in item["ins"]:
+            if op == 0xAF and arg == want:              # GETNAMEDMEMBER
+                scr.apt[at + 1] = to
                 break
         else:
-            raise ValueError("could not find %s to relabel" % a)
-    return bytes(out)
+            raise ValueError("%s does not read %s" % (item["label"], old))
+
+
+def make_text(scr, item):
+    """Turn an icon entry into a text one, in the same number of bytes.
+
+    The icon row and the text list are the same array; what puts an entry in
+    the row is the `IconAssetID` field on its object. Drop the field and the
+    entry falls into the list above, drawn with its label instead of its
+    picture. The four bytes that frees are padded out, so nothing moves.
+    """
+    n = item["end"] - item["start"]
+    body = strip_icon(scr, item)
+    scr.apt[item["start"]:item["end"]] = body + neutral_filler(n - len(body))
 
 
 # The three Xbox Live entries in the icon row. All are dead: the services
 # behind party sessions, leaderboards and achievements are gone.
 DEAD_XBOX_LIVE = ("HAL_XBOX_LIVE_PARTY_SESSIONS", "HAL_LEADERBOARDS",
                   "HAL_ACHIEVEMENTS")
+
+# The two that survive become text.
+AS_TEXT = ("HAL_HELP_AND_OPTIONS", "HAL_EXIT")
+
+# A row's label is a token, and the text behind it lives in
+# data/xenon/loc/<language>.db. The two new rows want to read OPTIONS and EXIT
+# GAME; as icons they carried "HELP & OPTIONS" and TXT_EXIT, and TXT_EXIT has
+# no entry in the database at all - as an icon it never needed one, which is
+# why the row first came up reading `*TXT_EXIT`.
+#
+# So Exit is pointed at a token that does have an entry: the one the removed
+# party-sessions icon used, which nothing reads any more. Both tokens then get
+# the words this menu wants, written into the database in place.
+RETOKEN = (("HAL_EXIT", "TXT_XBOX_LIVE_PARTY_SESSIONS"),)
+RETEXT = (("TXT_HELP_&_OPTIONS", "OPTIONS"),
+          ("TXT_XBOX_LIVE_PARTY_SESSIONS", "EXIT GAME"))
 
 
 def neutral_filler(n):
@@ -278,12 +362,12 @@ def neutral_filler(n):
 
 
 def cmd_mainmenu(args):
-    """Drop entries from the main menu without changing any length.
+    """Rebuild the main menu without changing any length.
 
     Each entry is a self-contained run of bytecode that builds an object and
-    appends it to the menu array, so overwriting one with instructions that do
-    nothing removes it from the menu and leaves every byte position in the file
-    exactly where it was.
+    appends it to the menu array. Overwriting one with instructions that do
+    nothing removes it; rewriting one in fewer bytes and padding the rest
+    changes it. Either way every byte position in the file stays where it was.
 
     That matters more than it sounds. Removing the bytes outright and
     recomputing every position in the payload - which tools/apt_movie.py can do,
@@ -296,25 +380,63 @@ def cmd_mainmenu(args):
     scr = Screen(args.source)
     fn = menu_function(scr)
     items, _ = menu_items(scr, fn)
-    drop = set(args.drop or DEAD_XBOX_LIVE)
+    by_label = {i["label"]: i for i in items}
 
-    known = {i["label"] for i in items}
-    missing = drop - known
+    drop = list(args.drop or DEAD_XBOX_LIVE)
+    convert = [tuple((a.split("=", 1) + [None])[:2]) for a in args.totext]         if args.totext else [(n, None) for n in AS_TEXT]
+
+    missing = [n for n in drop + [c[0] for c in convert] if n not in by_label]
     if missing:
-        raise SystemExit("this screen has no %s" % ", ".join(sorted(missing)))
+        raise SystemExit("this screen has no %s" % ", ".join(missing))
 
     print("%s: menu builder at 0x%05X, %d bytes" %
           (os.path.basename(args.source), fn["at"], fn["size"]))
-    for it in items:
-        if it["label"] in drop:
-            n = it["end"] - it["start"]
-            scr.apt[it["start"]:it["end"]] = neutral_filler(n)
-            print("   removed %-30s (%d bytes, replaced in place)" % (it["label"], n))
+
+    for label, rename in convert:
+        item = by_label[label]
+        if not item["icon"]:
+            raise SystemExit("%s is already a text entry" % label)
+        if rename:
+            retag(scr, item, rename)
+        make_text(scr, item)
+        print("   %-30s icon -> text%s" %
+              (label, ", now reads %s" % rename if rename else ""))
+
+    for label in drop:
+        item = by_label[label]
+        n = item["end"] - item["start"]
+        scr.apt[item["start"]:item["end"]] = neutral_filler(n)
+        print("   %-30s removed (%d bytes, replaced in place)" % (label, n))
+
+    if not args.totext:
+        for label, token in RETOKEN:
+            scr.point_token(label, token)
+            print("   %-30s now reads the token %s" % (label, token))
 
     scr.disassemble(fn["code"], fn["size"])     # must still decode cleanly
     after, _ = menu_items(scr, fn)
-    print("   menu is now: %s" %
-          ", ".join(i["label"].replace("HAL_", "") for i in after if i["array"] == 2))
+    db = locdb.LocDb(args.loc) if args.loc else None
+    if db is not None and args.loc_dest:
+        for token, text in RETEXT:
+            was = db.get(token)
+            db.rewrite(token, text)
+            print("   %-30s %r -> %r" % (token, was, text))
+        db.save(args.loc_dest)
+        print("   wrote %s" % args.loc_dest)
+    elif db is not None:
+        for token, text in RETEXT:
+            db.strings[token] = text            # show the intended result
+    print("   menu is now:")
+    for it in after:
+        if it["array"] != 2:
+            continue
+        token = scr.token(it["label"])
+        reads = ""
+        if db is not None:
+            text = db.get(token)
+            reads = "  reads %r" % text if text else "  NO TEXT for %s" % token
+        print("      %-24s %-5s%s" % (it["label"].replace("HAL_", ""),
+                                      "icon" if it["icon"] else "text", reads))
     scr.save(args.dest)
     print("   wrote %s" % args.dest)
     return 0
@@ -346,11 +468,18 @@ def main(argv):
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("list"); p.add_argument("source"); p.set_defaults(func=cmd_list)
     p = sub.add_parser("items"); p.add_argument("source"); p.set_defaults(func=cmd_items)
-    p = sub.add_parser("mainmenu", help="drop dead entries from the main menu")
+    p = sub.add_parser("mainmenu", help="rewrite the main menu in place")
     p.add_argument("source"); p.add_argument("dest")
+    p.add_argument("--loc", metavar="PATH", help="a language database, to show "
+                   "what each row will actually read")
+    p.add_argument("--loc-dest", metavar="PATH", help="write the language "
+                   "database the new rows need, alongside the screen")
     p.add_argument("--drop", action="append", metavar="HAL_NAME",
                    help="entry to remove (repeatable; defaults to the dead "
                         "Xbox Live trio)")
+    p.add_argument("--totext", action="append", metavar="HAL_NAME[=HAL_NEW]",
+                   help="entry to draw as text instead of an icon, optionally "
+                        "relabelled (repeatable)")
     p.set_defaults(func=cmd_mainmenu)
     args = ap.parse_args(argv)
     return args.func(args)
