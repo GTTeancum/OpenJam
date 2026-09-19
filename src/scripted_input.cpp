@@ -35,9 +35,12 @@
 // the previous step, the button is held for NBAJAM_INPUT_HOLD ms (default
 // 150), and then the next step's delay begins. WAIT presses nothing.
 //
-// Buttons: A B X Y START BACK LB RB LT RT UP DOWN LEFT RIGHT WAIT
+// Buttons: A B X Y START BACK LB RB LT RT UP DOWN LEFT RIGHT WAIT.
+// Join them with '+' to hold several at once, as in BACK+Y.
 
 #include "scripted_input.h"
+
+#include "mod_swap.h"
 
 #include <windows.h>
 
@@ -120,17 +123,30 @@ void Parse() {
     while (!name.empty() && (name.back() == ' ' || name.back() == '\r')) name.pop_back();
     for (char& c : name) c = char(toupper(static_cast<unsigned char>(c)));
 
+    // A step can hold more than one button at once, joined with '+', because
+    // some things are deliberately two-button - BACK+Y swaps the mod.
     uint16_t bits = 0;
-    bool known = false;
-    for (const auto& b : kButtons) {
-      if (name == b.name) {
-        bits = b.bits;
-        known = true;
-        break;
+    bool known = true;
+    for (size_t at = 0; at <= name.size() && known;) {
+      const size_t plus = name.find('+', at);
+      const std::string one =
+          name.substr(at, plus == std::string::npos ? std::string::npos : plus - at);
+      at = (plus == std::string::npos) ? name.size() + 1 : plus + 1;
+      if (one.empty()) continue;
+      bool hit = false;
+      for (const auto& b : kButtons) {
+        if (one == b.name) {
+          bits |= b.bits;
+          hit = true;
+          break;
+        }
+      }
+      if (!hit) {
+        REXLOG_WARN("input script: unknown button '{}'", one);
+        known = false;
       }
     }
     if (!known) {
-      REXLOG_WARN("input script: unknown button '{}'", name);
       continue;
     }
     clock += delay;
@@ -149,6 +165,14 @@ void Parse() {
 void NbaScriptedInput(PPCRegister& r1, PPCRegister& r26, PPCRegister& r3) {
   std::call_once(g_once, Parse);
   if (!g_active) {
+    // Nothing to inject, but this is still the one place in the frame where
+    // the pad has been read and not yet used, so it is where src/mod_swap.cpp
+    // gets to see it.
+    if (r26.u32 == 0 && r3.u32 == 0) {
+      const uint8_t* st =
+          reinterpret_cast<const uint8_t*>(kGuestVirtualBase + r1.u32 + kStateOffset);
+      NbaModSwapPad(uint16_t(st[4] << 8 | st[5]));
+    }
     return;
   }
   static int traced = 0;
@@ -216,4 +240,5 @@ void NbaScriptedInput(PPCRegister& r1, PPCRegister& r26, PPCRegister& r3) {
   std::memset(st + 6, 0, 10);   // triggers and both sticks centred
 
   r3.u32 = 0;   // ERROR_SUCCESS: tell the game the pad is there
+  NbaModSwapPad(inject);
 }

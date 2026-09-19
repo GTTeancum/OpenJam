@@ -493,6 +493,57 @@ def field_shape(scr, body, place):
         w, h, x, y, names.get(align, align), size)
 
 
+def place(scr, name, char=None, x=None, y=None, sx=None, sy=None, colour=None):
+    """Move, resize, recolour or repoint one named instance on a screen.
+
+    A PlaceObject is fixed size: which character it shows, where it goes, how
+    it is scaled and what colour it is multiplied by are all single fields in
+    it. So an object the game no longer has a use for can be pointed at a
+    different piece of art and put somewhere else, which is the only way to
+    add anything to a screen without moving a byte.
+    """
+    import apt_movie
+    p = apt_movie.Payload(bytes(scr.apt))
+    p.character(struct.unpack_from(">I", scr.const, 0x14)[0])
+    body = apt_movie.placement(p, name)
+    was = place_shape(scr, body)
+    if char is not None:
+        struct.pack_into(">I", scr.apt, body + 8, char)
+    for value, at in ((sx, body + 12), (sy, body + 24),
+                      (x, body + apt_movie.PLACE_X), (y, body + apt_movie.PLACE_Y)):
+        if value is not None:
+            struct.pack_into(">f", scr.apt, at, value)
+    if colour is not None:
+        struct.pack_into(">I", scr.apt, body + 36, colour)
+    return was, body
+
+
+def place_shape(scr, body):
+    char = struct.unpack_from(">I", scr.apt, body + 8)[0]
+    a, _b, _c, d, x, y = struct.unpack_from(">6f", scr.apt, body + 12)
+    colour = struct.unpack_from(">I", scr.apt, body + 36)[0]
+    return "character %d, scale %.2fx%.2f at (%.0f, %.0f), colour %08x" % (
+        char, a, d, x, y, colour)
+
+
+def cmd_place(args):
+    scr = Screen(args.source)
+    print("%s: %s" % (os.path.basename(args.source), args.name))
+    colour = int(args.colour, 16) if args.colour else None
+    was, body = place(scr, args.name, char=args.char, x=args.x, y=args.y,
+                      sx=args.sx, sy=args.sy, colour=colour)
+    print("   now    %s" % was)
+    now = place_shape(scr, body)
+    if now == was:
+        return 0
+    print("   to     %s" % now)
+    if not args.dest:
+        raise SystemExit("give a destination to write the change")
+    scr.save(args.dest)
+    print("   wrote %s" % args.dest)
+    return 0
+
+
 def cmd_field(args):
     """Show a named text field, and reshape it.
 
@@ -517,6 +568,30 @@ def cmd_field(args):
     scr.save(args.dest)
     print("   wrote %s" % args.dest)
     return 0
+
+
+def cmd_handler(args):
+    """The fingerprint src/mod_swap.cpp uses to know the main menu is up.
+
+    It is the FNV-1a of the first 64 bytes of the function that reads the pad
+    on this screen - found by the fact that it is the one that tests
+    CODE_TRIANGLE - which is exactly what the trace hook computes for every
+    block the interpreter runs.
+    """
+    scr = Screen(args.source)
+    want = scr.constant("CODE_TRIANGLE")
+    for f in scr.functions():
+        ins = scr.disassemble(f["code"], f["size"])
+        if not any(op == 0xAF and a == want for _, op, a in ins):
+            continue
+        h = 0xCBF29CE484222325
+        for b in scr.apt[f["code"]:f["code"] + 64]:
+            h = ((h ^ b) * 0x100000001B3) & 0xFFFFFFFFFFFFFFFF
+        print("%s: input handler at 0x%05X, %d bytes"
+              % (os.path.basename(args.source), f["at"], f["size"]))
+        print("   fingerprint 0x%016X" % h)
+        return 0
+    raise SystemExit("%s has no screen input handler" % args.source)
 
 
 def cmd_list(args):
@@ -559,6 +634,17 @@ def main(argv):
                    help="entry to draw as text instead of an icon, optionally "
                         "relabelled (repeatable)")
     p.set_defaults(func=cmd_mainmenu)
+    p = sub.add_parser("place", help="move, resize or recolour a named instance")
+    p.add_argument("source"); p.add_argument("name")
+    p.add_argument("dest", nargs="?")
+    p.add_argument("--char", type=int, help="show a different character")
+    p.add_argument("--x", type=float); p.add_argument("--y", type=float)
+    p.add_argument("--sx", type=float); p.add_argument("--sy", type=float)
+    p.add_argument("--colour", metavar="AARRGGBB")
+    p.set_defaults(func=cmd_place)
+
+    p = sub.add_parser("handler", help="fingerprint a screen's input handler")
+    p.add_argument("source"); p.set_defaults(func=cmd_handler)
     p = sub.add_parser("field", help="show or reshape a named text field")
     p.add_argument("source"); p.add_argument("name")
     p.add_argument("dest", nargs="?")

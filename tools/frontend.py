@@ -47,7 +47,10 @@ PANEL_BOX = {"width": 420.0, "height": 424.0, "x": 40.0, "y": 50.0,
 PANEL_TEXT = "TXT_JAMNET_REQUIRED_CONNECTION"
 
 # And the footer's name for the Y button, which used to open the storefront.
-FOOTER_Y = ("TXT_DOWNLOAD_CONTENT", "Mods")
+# It takes BACK as well, so that a restart cannot happen by accident in a
+# match - see src/mod_swap.cpp for why the runtime cannot simply tell which
+# screen is up.
+FOOTER_Y = ("TXT_DOWNLOAD_CONTENT", "+BACK Next mod")
 
 # Space for the mod list is borrowed from the online lobby's strings, which an
 # offline build can never reach. See LocDb.space.
@@ -55,7 +58,7 @@ def expendable(token):
     return token.startswith("OSDK_OL")
 
 
-FOOTNOTE = "Mods live in the DLC folder beside the game."
+FOOTNOTE = "BACK+Y loads the next mod. Mods live in the DLC folder."
 
 
 def panel_text(mods, active):

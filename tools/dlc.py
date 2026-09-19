@@ -324,6 +324,47 @@ def cmd_instance(args):
     return 0
 
 
+MOD_LIST = "mods.list"
+
+
+def write_mod_list(roots, active, out):
+    """Tell a game root about every other one, so the game can switch.
+
+    Pressing Y on the main menu moves to the next root in this file - see
+    src/mod_swap.cpp, which is the only thing that reads it. Tab separated,
+    because a mod's name has spaces in it and its path might too.
+    """
+    lines = ["# Written by tools/dlc.py roots. Y on the main menu moves down "
+             "this list.", "active {}".format(active)]
+    for mod_id, path, name in roots:
+        lines.append("mod {}\t{}\t{}".format(mod_id, path, name))
+    (Path(out) / MOD_LIST).write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def cmd_roots(args):
+    """Build a game root for the base game and for every mod, ready to switch."""
+    mods = [(m.get("id", p.name), m) for p, m in load_mods()]
+    out = Path(args.out).resolve() if args.out else INSTANCE_ROOT
+    plan = [(BASE, {"name": "Base game"})] + mods
+
+    built = []
+    for mod_id, manifest in plan:
+        target = out / mod_id
+        print("\nbuilding {}".format(target))
+        sub = argparse.Namespace(mod=mod_id, out=str(target), include=None,
+                                 exclude=None, stock_menu=args.stock_menu)
+        if cmd_instance(sub):
+            return 1
+        built.append((mod_id, str(target), manifest.get("name", mod_id)))
+
+    for mod_id, path, _name in built:
+        write_mod_list(built, mod_id, path)
+    print("\n{} root(s), each listing the others in {}".format(len(built), MOD_LIST))
+    print("Start with:")
+    print('  .\\run.ps1 -GameRoot "{}"'.format(built[0][1]))
+    return 0
+
+
 def main(argv):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -352,6 +393,12 @@ def main(argv):
     p.add_argument("--exclude", action="append", metavar="GLOB",
                    help="do not apply mod files matching this (repeatable)")
     p.set_defaults(func=cmd_instance)
+
+    p = sub.add_parser("roots", help="build every root and let the game switch")
+    p.add_argument("--out", help="where the roots go (default: instances/)")
+    p.add_argument("--stock-menu", action="store_true",
+                   help="leave the front end exactly as the disc has it")
+    p.set_defaults(func=cmd_roots)
 
     args = ap.parse_args(argv)
     return args.func(args)
