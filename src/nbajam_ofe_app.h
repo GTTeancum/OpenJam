@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include "window_title.h"
+
 #include <rex/cvar.h>
 #include <rex/logging.h>
 #include <rex/rex_app.h>
@@ -49,5 +51,20 @@ class NbajamOfeApp : public rex::ReXApp {
     REXLOG_INFO("license_mask = {} ({})", REXCVAR_GET(license_mask),
                 REXCVAR_GET(license_mask) & 1u ? "full version" : "TRIAL");
     rex::ReXApp::OnPreSetup(config);
+  }
+
+  // The window is named after the executable unless something says otherwise.
+  void OnPostSetup() override {
+    if (window()) {
+      window()->SetTitle(NbaWindowTitle());
+    }
+    rex::ReXApp::OnPostSetup();
+  }
+
+  // And from here on it carries the frame rate; see src/window_title.cpp for
+  // why the count is taken from ImGui rather than from the game.
+  void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
+    NbaTrackFrameRateInTitle(drawer, window());
+    rex::ReXApp::OnCreateDialogs(drawer);
   }
 };

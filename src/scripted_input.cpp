@@ -41,6 +41,7 @@
 #include "scripted_input.h"
 
 #include "mod_swap.h"
+#include "window_title.h"
 
 #include <windows.h>
 
@@ -163,6 +164,11 @@ void Parse() {
 }  // namespace
 
 void NbaScriptedInput(PPCRegister& r1, PPCRegister& r26, PPCRegister& r3) {
+  // The game polls each pad once a frame, so pad 0 arriving here is a frame.
+  // src/window_title.cpp counts them to put a rate in the window title.
+  if (r26.u32 == 0) {
+    NbaGuestFrame();
+  }
   std::call_once(g_once, Parse);
   if (!g_active) {
     // Nothing to inject, but this is still the one place in the frame where
