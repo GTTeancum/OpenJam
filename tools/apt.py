@@ -524,6 +524,43 @@ def drop_helpbar_entry(scr, code):
     return False
 
 
+def silence(scr, name):
+    """Stop a screen positioning, sizing or hiding one of its own objects.
+
+    A panel built for a leaderboard spends its setup moving things into place
+    for a list that, offline, never arrives. Each of those is one statement -
+    push the object, name the field, work out a value, set it - so blanking
+    the run from the object to its SETMEMBER leaves the object exactly where
+    the movie put it. Do that to every statement naming an object and the
+    object becomes ours to place. Returns how many it silenced.
+    """
+    want = scr.constant(name)
+    done = 0
+    for fn in scr.functions():
+        ins = scr.disassemble(fn["code"], fn["size"])
+        for i, (at, op, arg) in enumerate(ins):
+            if op != 0xAF or arg != want or i < 2:
+                continue
+            if ins[i - 1][1] != 0xB9:              # PUSHREGISTER, the screen
+                continue
+            # Only when that push starts a statement. The same object also
+            # turns up inside expressions - `a._x = b._x + b.textWidth` names
+            # b twice - and blanking from there to the next SETMEMBER eats the
+            # assignment's own opening pushes, leaving the stack short and the
+            # screen dead before it draws anything.
+            if ins[i - 2][1] not in (0x4F, 0x17, 0x3D, 0x52, 0x5D):
+                continue
+            for j in range(i + 1, len(ins)):
+                if ins[j][1] != 0x4F:              # SETMEMBER
+                    continue
+                start, end = ins[i - 1][0], ins[j][0] + 1
+                scr.apt[start:end] = neutral_filler(end - start)
+                done += 1
+                break
+    scr.disassemble(fn["code"], fn["size"])         # must still decode
+    return done
+
+
 def show_always(scr, name):
     """Stop a screen hiding one of its own objects.
 
@@ -574,6 +611,13 @@ def place(scr, name, char=None, x=None, y=None, sx=None, sy=None, colour=None):
             struct.pack_into(">f", scr.apt, at, value)
     if colour is not None:
         struct.pack_into(">I", scr.apt, body + 36, colour)
+        # A placement only gets a colour if it says it has one. Bit 3 of the
+        # flags is what says so, and it is why half the panel's objects ignore
+        # a tint and half take it: the ones the artist coloured carry 0x2E, the
+        # ones left plain carry 0x26. Setting it is the difference between an
+        # orange card and a grey one.
+        flags = struct.unpack_from(">I", scr.apt, body)[0]
+        struct.pack_into(">I", scr.apt, body, flags | 0x08)
     return was, body
 
 

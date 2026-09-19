@@ -42,30 +42,50 @@ PANEL_FIELD = "txtStatusMessage"
 PANEL_BOX = {"width": 430.0, "height": 424.0, "x": 46.0, "y": 44.0,
              "align": "left"}
 
-# A card behind each row. There is no way to add an object to a screen, so
-# these are four the panel already has and no longer uses: two it hides when
-# there is no leaderboard, which offline is always, and two it simply leaves
-# empty. Each is pointed at the panel's own frame art - the same nine-slice
-# the panel itself is drawn from - so a card looks like it belongs.
-# There is no box around the active mod, and the design asks for one: orange
-# around it, blue around the rest. Three things stop it, and together they
-# stop it completely.
+# A box around every row: orange around the mod that is loaded, blue around
+# the rest, as the design has it.
 #
-# A screen cannot be given new objects - that is the whole rule this port
-# edits front ends under - so a box has to be something the panel already
-# places and no longer uses. There are four: two the panel hides when it has
-# no leaderboard, two it leaves empty. But the row highlight, the obvious
-# candidate, is positioned by the list component every frame, so moving it in
-# the movie does nothing; and the other three answer to coordinate spaces that
-# are not the panel's, landing off the edge of it.
+# A screen cannot be given new objects, so a box is two objects the panel
+# already places and no longer needs, pointed at the one piece of art in it
+# that is a plain light tile. The first is stretched to the size of the box
+# and takes the colour; the second is stretched two units smaller, sits on top
+# in the panel's own near-black, and cuts the middle out. What is left is an
+# outline.
 #
-# And the part that settles it: the colour in a PlaceObject is not honoured.
-# Only its alpha is. Tinting one band pure red and another pure blue left both
-# exactly the grey they already were, so even a box in the right place could
-# not be orange.
+# Four things had to be true and none of them was obvious.
 #
-# What would work is a real display object, which means adding to the movie,
-# which means moving bytes - see tools/apt_movie.py for why that does not.
+# The panel positions and sizes these objects in its setup, for a leaderboard
+# that offline never arrives, so every statement naming one is silenced first
+# or the movie's placement is overwritten before the first frame.
+#
+# A placement only takes a colour if its flags say it has one. That is why
+# half of these ignored a tint and half took it, and it is a one-bit fix -
+# apt.place sets it.
+#
+# The colour multiplies, so it can tint art but never brighten it. The panel's
+# own frame is nearly black and comes out nearly black whatever it is tinted;
+# the light tile is the only art here that takes a colour and shows it.
+#
+# And a slot has to sit directly on the panel. The gloss overlay looks like a
+# candidate and is not: it hangs off a parent that is scaled, so a box put
+# there comes out wider than the panel and over its edge.
+CARD_ART = 46                       # the one plain light tile the panel has
+CARD_EDGE = ("mcPanelGradient", "mcUpperLine", "mcLowerLine", "mcArrow")
+CARD_FILL = ("mcScrollBar", "mcItemList", "mcItemGrid", "mcHighlight")
+CARD_ACTIVE = 0xFFFFA23C
+CARD_IDLE = 0xFF4A86E8
+CARD_INSIDE = 0xFF0B1220            # the panel's own near-black
+CARD_BORDER = 2.0
+
+# Geometry in the panel's own units, measured off the screen: a line of
+# 16-point text is 20 units, a row is three of them, the first starts at 76,
+# and the tile is two units wide by one and a bit tall.
+CARD_TOP = 76.0
+CARD_PITCH = 60.0
+CARD_HEIGHT = 54.0
+CARD_X = 26.0
+CARD_WIDTH = 446.0
+ART_W, ART_H = 2.0, 1.63
 
 # Where the mod list is written. It is the "cannot reach the servers" message,
 # which is what the panel shows when it has no feed - which offline is always.
@@ -147,8 +167,26 @@ def apply(root, mods=(), active=None, language="eng_us"):
 
     feed = apt.Screen(str(panel))
     apt.reshape_field(feed, PANEL_FIELD, **PANEL_BOX)
+    rows = [None] + [m.get("id") for m in mods]
+    b = CARD_BORDER
+    for i, (edge, fill) in enumerate(zip(CARD_EDGE, CARD_FILL)):
+        apt.silence(feed, edge)
+        apt.silence(feed, fill)
+        if i >= len(rows):
+            apt.place(feed, edge, sy=0.0)       # no row, no box
+            apt.place(feed, fill, sy=0.0)
+            continue
+        top = CARD_TOP + CARD_PITCH * i
+        apt.place(feed, edge, char=CARD_ART, x=CARD_X, y=top,
+                  sx=CARD_WIDTH / ART_W, sy=CARD_HEIGHT / ART_H,
+                  colour=CARD_ACTIVE if rows[i] == active else CARD_IDLE)
+        apt.place(feed, fill, char=CARD_ART, x=CARD_X + b, y=top + b,
+                  sx=(CARD_WIDTH - 2 * b) / ART_W,
+                  sy=(CARD_HEIGHT - 2 * b) / ART_H, colour=CARD_INSIDE)
     feed.save(replace(panel))
-    done.append("panel: the message field given the whole panel")
+    done.append("panel: %d box(es), orange on row %d"
+                % (min(len(rows), len(CARD_EDGE)),
+                   rows.index(active) + 1 if active in rows else 1))
 
     db = locdb.LocDb(str(strings))
     for token, text in apt.RETEXT + (FOOTER_Y,):
