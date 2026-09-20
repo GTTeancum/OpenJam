@@ -70,9 +70,11 @@ PARENT = PORT.parent
 GAME_ROOT = PARENT / "Root"
 DLC_ROOT = PARENT / "DLC"
 INSTANCE_ROOT = PARENT / "instances"
-# Saves live outside the instances, because `roots` deletes and rebuilds
-# those and a save is the one thing here that cannot be rebuilt.
-SAVE_ROOT = PARENT / "saves"
+
+# Every game root says which mod it holds. src/mod_saves.cpp reads it and
+# gives that mod its own save folder, so a mod added later needs no entry
+# anywhere - its root carries its name and its saves follow.
+MOD_MARKER = "mod.id"
 
 SCHEMA = 1
 
@@ -312,6 +314,11 @@ def cmd_instance(args):
         front = frontend.apply(out, [m for _p, m in load_mods()],
                                None if args.mod == BASE else args.mod)
 
+    # Say which mod this root holds. src/mod_saves.cpp reads it and gives the
+    # mod its own save folder, which is why nothing here has to remember where
+    # saves went or pass a path along when the game relaunches into another.
+    (out / MOD_MARKER).write_text(args.mod + "\n", encoding="utf-8")
+
     print("instance for '{}' ({})".format(manifest.get("name", args.mod), args.mod))
     print("  {} from the base game, {} replaced by the mod, {} added".format(
         base, replaced, added))
@@ -337,15 +344,14 @@ def write_mod_list(roots, active, out):
     src/mod_swap.cpp, which is the only thing that reads it. Tab separated,
     because a mod's name has spaces in it and its paths might too.
 
-    Four fields: the id, the game root, where that mod's saves go, and the
-    name. The saves are separate per mod because every mod is the same
-    executable and so the same title, and the game files saved content under
-    the title alone - so one save would otherwise be shared by all of them.
+    Three fields: the id, the game root and the name. Saves are not in here -
+    they follow from the `mod.id` each root carries, so that they are right
+    however the game was started and not only after a swap.
     """
     lines = ["# Written by tools/dlc.py roots. Y on the main menu moves down "
              "this list.", "active {}".format(active)]
-    for mod_id, path, saves, name in roots:
-        lines.append("mod {}\t{}\t{}\t{}".format(mod_id, path, saves, name))
+    for mod_id, path, name in roots:
+        lines.append("mod {}\t{}\t{}".format(mod_id, path, name))
     (Path(out) / MOD_LIST).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -363,12 +369,9 @@ def cmd_roots(args):
                                  exclude=None, stock_menu=args.stock_menu)
         if cmd_instance(sub):
             return 1
-        saves = Path(args.saves).resolve() / mod_id if args.saves             else SAVE_ROOT / mod_id
-        saves.mkdir(parents=True, exist_ok=True)
-        built.append((mod_id, str(target), str(saves),
-                      manifest.get("name", mod_id)))
+        built.append((mod_id, str(target), manifest.get("name", mod_id)))
 
-    for mod_id, path, _saves, _name in built:
+    for mod_id, path, _name in built:
         write_mod_list(built, mod_id, path)
     print("\n{} root(s), each listing the others in {}".format(len(built), MOD_LIST))
     print("Start with:")
@@ -407,7 +410,6 @@ def main(argv):
 
     p = sub.add_parser("roots", help="build every root and let the game switch")
     p.add_argument("--out", help="where the roots go (default: instances/)")
-    p.add_argument("--saves", help="where the save folders go (default: saves/)")
     p.add_argument("--stock-menu", action="store_true",
                    help="leave the front end exactly as the disc has it")
     p.set_defaults(func=cmd_roots)

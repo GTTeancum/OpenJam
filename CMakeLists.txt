@@ -28,6 +28,7 @@ set(NBAJAMOFE_SOURCES
     src/dds_textures.cpp
     src/scripted_input.cpp
     src/apt_trace.cpp
+    src/mod_saves.cpp
     src/mod_swap.cpp
     src/window_title.cpp
 )

@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "mod_saves.h"
 #include "window_title.h"
 
 #include <rex/cvar.h>
@@ -53,8 +54,23 @@ class NbajamOfeApp : public rex::ReXApp {
     rex::ReXApp::OnPreSetup(config);
   }
 
+  // Each mod keeps its own saves; see src/mod_saves.cpp for why sharing them
+  // would be worse than it sounds. Here rather than anywhere else because this
+  // runs after both the defaults and the command line have been read and
+  // before anything opens a save, so it covers however the game was started.
+  void OnConfigurePaths(rex::PathConfig& paths) override {
+    paths.user_data_root =
+        NbaSaveRootFor(paths.user_data_root, paths.game_data_root);
+    rex::ReXApp::OnConfigurePaths(paths);
+  }
+
   // The window is named after the executable unless something says otherwise.
   void OnPostSetup() override {
+    // Said here rather than where it is decided, because paths are resolved
+    // before logging exists.
+    REXLOG_INFO("saves: {}{}", user_data_root().string(),
+                NbaModId(game_data_root()).empty()
+                    ? " (shared; this root names no mod)" : "");
     if (window()) {
       window()->SetTitle(NbaWindowTitle());
     }

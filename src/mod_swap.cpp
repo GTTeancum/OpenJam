@@ -24,20 +24,13 @@
 // each of them. That file is the only thing this reads:
 //
 //     active <id>
-//     mod <id> <TAB> <path> <TAB> <saves> <TAB> <name>
+//     mod <id> <TAB> <path> <TAB> <name>
 //
-// Tab separated because a mod's name has spaces in it and its paths might too.
+// Tab separated because a mod's name has spaces in it and its path might too.
 //
-// **Saves.** Each root carries its own save folder and the relaunch points the
-// runtime at it. They have to be separate. Every mod is the same executable
-// and so the same title, and the content the game writes is filed under the
-// title and nothing else - so one save would be shared by all of them. That
-// would be worse than it sounds: the four roster databases are structurally
-// identical, same tables and the same 509 player and 67 team slots, and a mod
-// replaces what is in those slots rather than adding to them. A save records
-// unlocks, purchases, records and Road Trip progress by slot, so carrying one
-// across would unlock players nobody unlocked and show a campaign finished
-// against teams that were never played.
+// Saves are not in here and do not need to be. Each root says which mod it
+// holds and src/mod_saves.cpp turns that into a save folder, so a relaunch
+// carries nothing about saves and still lands on the right ones.
 
 #include "mod_swap.h"
 
@@ -61,7 +54,6 @@ constexpr uint16_t kButtonY = 0x8000;
 struct Root {
   std::string id;
   std::string path;
-  std::string saves;
   std::string name;
 };
 
@@ -111,16 +103,15 @@ bool ReadList(const std::string& root, std::vector<Root>* roots,
     }
     if (line.rfind("mod", 0) != 0) continue;
     const std::string rest = Trim(line.substr(3));
-    std::string field[4];
+    std::string field[3];
     size_t at = 0;
-    for (int i = 0; i < 4 && at <= rest.size(); ++i) {
+    for (int i = 0; i < 3 && at <= rest.size(); ++i) {
       const size_t tab = rest.find('\t', at);
       field[i] = Trim(rest.substr(
           at, tab == std::string::npos ? std::string::npos : tab - at));
       at = (tab == std::string::npos) ? rest.size() + 1 : tab + 1;
     }
-    Root r{field[0], field[1], field[2],
-           field[3].empty() ? field[0] : field[3]};
+    Root r{field[0], field[1], field[2].empty() ? field[0] : field[2]};
     if (!r.id.empty() && !r.path.empty()) roots->push_back(r);
   }
   return !roots->empty();
@@ -141,24 +132,16 @@ std::wstring RelaunchCommand(const Root& next) {
   int argc = 0;
   LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
   std::wstring out;
-  bool said_saves = false;
   for (int i = 0; i < argc; ++i) {
     std::wstring a(argv[i]);
     if (a.rfind(L"--game_data_root=", 0) == 0) {
       a = L"--game_data_root=\"" + Widen(next.path) + L"\"";
-    } else if (a.rfind(L"--user_data_root=", 0) == 0) {
-      if (next.saves.empty()) continue;         // drop it; this root has none
-      a = L"--user_data_root=\"" + Widen(next.saves) + L"\"";
-      said_saves = true;
     } else if (a.find(L' ') != std::wstring::npos && a.front() != L'"' &&
                a.rfind(L"--", 0) != 0) {
       a = L"\"" + a + L"\"";
     }
     if (i) out += L" ";
     out += a;
-  }
-  if (!said_saves && !next.saves.empty()) {
-    out += L" --user_data_root=\"" + Widen(next.saves) + L"\"";
   }
   LocalFree(argv);
   return out;
