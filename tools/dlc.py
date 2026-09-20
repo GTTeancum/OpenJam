@@ -71,13 +71,16 @@ GAME_ROOT = PARENT / "Root"
 DLC_ROOT = PARENT / "DLC"
 INSTANCE_ROOT = PARENT / "instances"
 
-# Saves live in the game folder, one directory per mod, and each game root
-# carries a note saying which is its own. src/mod_saves.cpp reads it, so a mod
-# added later needs no entry anywhere: its root is built with the note in it
-# and its saves follow. They are kept out of the roots themselves because
-# `roots` deletes and rebuilds those, and a save is the one thing here that
-# cannot be rebuilt.
-SAVE_ROOT = PARENT / "saves"
+# A game root is meant to look like an installed game: default.xex, the data
+# beside it, and the saves in a `saves` folder of its own. Each root carries a
+# note naming that folder, which src/mod_saves.cpp reads - so a mod added
+# later needs no entry anywhere, because its root is built with the note in
+# it and its saves follow.
+#
+# Rebuilding a root therefore has to step around that folder. It is the one
+# thing in there that is not rebuildable: everything else is a hard link to
+# the base game or to the mod.
+SAVE_DIR = "saves"
 SAVE_MARKER = "saves.path"
 
 SCHEMA = 1
@@ -247,8 +250,15 @@ def cmd_instance(args):
 
     out = Path(args.out).resolve() if args.out else INSTANCE_ROOT / args.mod
     if out.exists():
-        shutil.rmtree(out)
-    out.mkdir(parents=True)
+        # Everything but the saves, which belong to whoever played them.
+        for child in out.iterdir():
+            if child.name == SAVE_DIR:
+                continue
+            if child.is_dir() and not child.is_symlink():
+                shutil.rmtree(child)
+            else:
+                child.unlink()
+    out.mkdir(parents=True, exist_ok=True)
 
     # Filters exist so a mod that does not work wholesale can be bisected:
     # apply only the databases, then only the XML, and so on, until the file
@@ -318,17 +328,10 @@ def cmd_instance(args):
         front = frontend.apply(out, [m for _p, m in load_mods()],
                                None if args.mod == BASE else args.mod)
 
-    # Point this root at its own saves, in the game folder rather than in the
-    # root - `roots` deletes and rebuilds roots, and a save is the one thing
-    # here that cannot be rebuilt. Written relative where it can be, so moving
-    # the game folder keeps the saves attached to it.
-    saves = SAVE_ROOT / args.mod
-    saves.mkdir(parents=True, exist_ok=True)
-    try:
-        note = os.path.relpath(saves, out)
-    except ValueError:
-        note = str(saves)
-    (out / SAVE_MARKER).write_text(note + "\n", encoding="utf-8")
+    # Point this root at its own saves, beside default.xex. Relative, so the
+    # whole folder can be moved or copied and its saves travel with it.
+    (out / SAVE_DIR).mkdir(exist_ok=True)
+    (out / SAVE_MARKER).write_text(SAVE_DIR + "\n", encoding="utf-8")
 
     print("instance for '{}' ({})".format(manifest.get("name", args.mod), args.mod))
     print("  {} from the base game, {} replaced by the mod, {} added".format(

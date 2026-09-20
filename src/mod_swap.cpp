@@ -175,10 +175,13 @@ void Swap() {
   STARTUPINFOW si{};
   si.cb = sizeof(si);
   PROCESS_INFORMATION pi{};
-  wchar_t dir[MAX_PATH]{};
-  GetCurrentDirectoryW(MAX_PATH, dir);
+  // Start it in the root it is going to play, the folder default.xex sits in,
+  // so the replacement runs from its own game folder exactly as a fresh
+  // launch does - and writes its logs and its saves there rather than in
+  // whichever root it came from.
+  const std::wstring dir = Widen(next.path);
   if (!CreateProcessW(exe, buf.data(), nullptr, nullptr, FALSE, 0, nullptr,
-                      dir, &si, &pi)) {
+                      dir.c_str(), &si, &pi)) {
     REXLOG_ERROR("mod swap: could not relaunch ({})", GetLastError());
     return;
   }
