@@ -69,7 +69,7 @@ class NbajamOfeApp : public rex::ReXApp {
     // Said here rather than where it is decided, because paths are resolved
     // before logging exists.
     REXLOG_INFO("saves: {}{}", user_data_root().string(),
-                NbaModId(game_data_root()).empty()
+                NbaSavePath(game_data_root()).empty()
                     ? " (shared; this root names no mod)" : "");
     if (window()) {
       window()->SetTitle(NbaWindowTitle());

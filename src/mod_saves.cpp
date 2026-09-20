@@ -12,58 +12,35 @@
 // Road Trip progress by slot, so one carried across would unlock players
 // nobody unlocked and show a campaign finished against teams never played.
 //
-// So the saves are split, and split by a rule rather than by a list. A game
-// root built by tools/dlc.py carries a `mod.id` file naming the mod it holds;
-// the save folder is then wherever saves would have gone, plus that name. It
-// is done here, in OnConfigurePaths, because that runs after the defaults and
-// the command line have both been read and before anything opens a save - so
-// it holds however the game was started, including a relaunch from a mod
-// swap, and needs nothing to be passed along.
+// So each game root says where its own saves go: tools/dlc.py leaves a
+// `saves.path` file in it naming a folder under the game's own `saves`
+// directory, one per mod. Written relative to the root where it can be, so
+// moving the whole game folder keeps the saves attached to it.
 //
-// The two things that follow from the rule being a rule:
+// This is read in OnConfigurePaths, which runs after the defaults and the
+// command line have both been read and before anything opens a save - so it
+// holds however the game was started, a relaunch from a mod swap included,
+// and nothing has to be passed along.
+//
+// Two things follow from a root carrying its own answer:
 //
 //   - a mod added tomorrow needs no change here and no entry anywhere. Its
-//     root carries its id, and its saves follow.
+//     root is built with the file in it, and its saves follow.
 //   - a game root that is not one of ours, the extracted game itself for
-//     instance, has no id and keeps the plain save location. That is the
+//     instance, says nothing and keeps the plain save location. That is the
 //     right answer rather than a missing case: there is no mod to separate.
-//
-// An explicit --user_data_root still decides where saves live; the mod's name
-// is appended to it, so pointing the whole lot somewhere else keeps working
-// and keeps the mods apart.
 
 #include "mod_saves.h"
 
-#include <cctype>
 #include <fstream>
+#include <string>
 
-namespace {
-
-// A mod id is written by us and is already a slug, but it lands in a path, so
-// anything that has no business in a folder name is dropped rather than
-// trusted.
-std::string Sanitise(const std::string& raw) {
-  std::string out;
-  for (char c : raw) {
-    const unsigned char u = static_cast<unsigned char>(c);
-    if (std::isalnum(u) || c == '-' || c == '_' || c == '.') {
-      out.push_back(c);
-    }
-  }
-  while (!out.empty() && out.front() == '.') {
-    out.erase(out.begin());       // no leading dots, no `..`
-  }
-  return out;
-}
-
-}  // namespace
-
-std::string NbaModId(const std::filesystem::path& game_root) {
+std::filesystem::path NbaSavePath(const std::filesystem::path& game_root) {
   if (game_root.empty()) {
     return {};
   }
   std::error_code ec;
-  const std::filesystem::path marker = game_root / "mod.id";
+  const std::filesystem::path marker = game_root / "saves.path";
   if (!std::filesystem::exists(marker, ec)) {
     return {};
   }
@@ -73,14 +50,26 @@ std::string NbaModId(const std::filesystem::path& game_root) {
   while (!line.empty() && (line.back() == '\r' || line.back() == ' ')) {
     line.pop_back();
   }
-  return Sanitise(line);
+  if (line.empty()) {
+    return {};
+  }
+  // Relative to the root it was found in, which is what keeps a moved game
+  // folder pointing at its own saves rather than at where they used to be.
+  std::filesystem::path want(line);
+  if (want.is_relative()) {
+    want = game_root / want;
+  }
+  const std::filesystem::path tidy = want.lexically_normal();
+  return tidy;
 }
 
 std::filesystem::path NbaSaveRootFor(const std::filesystem::path& user_data_root,
                                      const std::filesystem::path& game_root) {
-  const std::string id = NbaModId(game_root);
-  if (id.empty()) {
+  const std::filesystem::path want = NbaSavePath(game_root);
+  if (want.empty()) {
     return user_data_root;
   }
-  return user_data_root / id;
+  std::error_code ec;
+  std::filesystem::create_directories(want, ec);
+  return want;
 }

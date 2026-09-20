@@ -71,10 +71,14 @@ GAME_ROOT = PARENT / "Root"
 DLC_ROOT = PARENT / "DLC"
 INSTANCE_ROOT = PARENT / "instances"
 
-# Every game root says which mod it holds. src/mod_saves.cpp reads it and
-# gives that mod its own save folder, so a mod added later needs no entry
-# anywhere - its root carries its name and its saves follow.
-MOD_MARKER = "mod.id"
+# Saves live in the game folder, one directory per mod, and each game root
+# carries a note saying which is its own. src/mod_saves.cpp reads it, so a mod
+# added later needs no entry anywhere: its root is built with the note in it
+# and its saves follow. They are kept out of the roots themselves because
+# `roots` deletes and rebuilds those, and a save is the one thing here that
+# cannot be rebuilt.
+SAVE_ROOT = PARENT / "saves"
+SAVE_MARKER = "saves.path"
 
 SCHEMA = 1
 
@@ -314,10 +318,17 @@ def cmd_instance(args):
         front = frontend.apply(out, [m for _p, m in load_mods()],
                                None if args.mod == BASE else args.mod)
 
-    # Say which mod this root holds. src/mod_saves.cpp reads it and gives the
-    # mod its own save folder, which is why nothing here has to remember where
-    # saves went or pass a path along when the game relaunches into another.
-    (out / MOD_MARKER).write_text(args.mod + "\n", encoding="utf-8")
+    # Point this root at its own saves, in the game folder rather than in the
+    # root - `roots` deletes and rebuilds roots, and a save is the one thing
+    # here that cannot be rebuilt. Written relative where it can be, so moving
+    # the game folder keeps the saves attached to it.
+    saves = SAVE_ROOT / args.mod
+    saves.mkdir(parents=True, exist_ok=True)
+    try:
+        note = os.path.relpath(saves, out)
+    except ValueError:
+        note = str(saves)
+    (out / SAVE_MARKER).write_text(note + "\n", encoding="utf-8")
 
     print("instance for '{}' ({})".format(manifest.get("name", args.mod), args.mod))
     print("  {} from the base game, {} replaced by the mod, {} added".format(
