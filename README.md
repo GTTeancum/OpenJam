@@ -39,21 +39,6 @@ EA Sports intro video decodes correctly.
 Known rough edges: the Xenos backend logs a stream of "invalid" texture fetch
 constant warnings during play, and `memmap:\clips\` is unmapped.
 
-### A recompiler bug worth knowing about
-
-The intro video played with heavy green corruption. The cause was ReXGlue
-v0.10.0 translating `vpkuwus` by writing its destination register one element at
-a time while still reading the sources — correct only when the destination is a
-different register. All three `vpkuwus128` instructions in this image are in the
-VP6 decoder, and all three have the destination as one of their sources.
-
-`tools/fix_vector_aliasing.py` repairs them after codegen. Against an ffmpeg
-decode of the same file the frame goes from 23% of pixels wrong to 0.08%.
-[BUILDING.md](BUILDING.md) has the full account, including how the decoder was
-located in an image with no symbols.
-
-![Intro before and after](screenshots/intro_vp6_before_after.png)
-
 ## Notes
 
 The eventual target is an original Xbox port, which inverts most of the
