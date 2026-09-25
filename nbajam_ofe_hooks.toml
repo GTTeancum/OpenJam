@@ -44,3 +44,10 @@ registers = ["r1", "r26", "r3"]
 address = 0x82330438
 name = "NbaAptBlock"
 registers = ["r3", "r4", "r5", "r6"]
+
+# Where the resource lookup gives up. A mod with a hole in its art used to
+# take the game down here; see src/asset_fallback.cpp.
+[[midasm_hook]]
+address = 0x823678B4
+name = "NbaAssetFallback"
+registers = ["r3", "r31"]

@@ -118,7 +118,7 @@ The release archive is that folder with `data/`, `default.xex`, `mods/`,
 | **The container reader** | This is the gap. `Root/` on this machine was unpacked with an outside tool, so nothing in the release can do step 1 yet. A `LIVE` package's payload is not encrypted - it is a header, a volume descriptor and a block-linked file table - so this is parsing, not cryptography. | A day. |
 | **Setup in the manager** | The manager installs mods into a game folder that already exists. It needs the first-run path: container in, game folder out. The pieces all exist as `dlc.py stage` and would move across. | Half a day. |
 | **`README.txt`** | One page: copy this file off your console, run the manager, press Install. | An hour. |
-| **The Legends crash** | It falls over on the way into a match. The other two play. Narrowed to its rosters rather than its artwork, and not caused by the menu work. | Unknown until found. |
+| **Cleveland in the Legends edition** | That one team will not load. Everything else in all three mods plays. The game no longer dies or hangs over it: it says what happened and offers to start again. The team's players and their art are all present and correct - what the loader asks for and does not get is something the rosters name, which is not readable without unpacking the mod's attribute database. | Half a day, once that database can be read. |
 
 ## 7. What a player needs
 

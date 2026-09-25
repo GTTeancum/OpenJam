@@ -95,8 +95,10 @@ IF SOMETHING GOES WRONG
 The newest file in logs/ says what happened, and crash_stack.txt appears
 beside the game if it falls over. Both are worth attaching to a bug report.
 
-Known: one of the three published mods, the Legends edition, crashes on the
-way into a match. The other two play.
+If a mod is short of something the game needs, the game says so on screen and
+offers to start again rather than sitting there. That happens with one team in
+the Legends edition - Cleveland - and with no other team in any mod. Pick
+another team and it plays.
 
 ---
 

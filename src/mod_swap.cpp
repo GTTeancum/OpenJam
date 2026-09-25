@@ -172,28 +172,9 @@ std::wstring RelaunchCommand(const NbaMod& next) {
   return out;
 }
 
-}  // namespace
-
-bool NbaModList(std::vector<NbaMod>* mods, size_t* active) {
-  const std::string root = GameDataRoot();
-  std::string id;
-  mods->clear();
-  *active = 0;
-  if (root.empty() || !ReadList(root, mods, &id)) {
-    REXLOG_WARN("mods: no mods.list in '{}' - run tools/dlc.py stage", root);
-    return false;
-  }
-  for (size_t i = 0; i < mods->size(); ++i) {
-    if ((*mods)[i].id == id) *active = i;
-  }
-  return true;
-}
-
-void NbaModSwapTo(const NbaMod& next) {
-  if (next.path.empty() || next.path == GameDataRoot()) {
-    REXLOG_INFO("mod swap: '{}' is the one already running", next.name);
-    return;
-  }
+// Leave, and come back up playing `next`. Shared by the chooser and by the
+// way out of a game that has stopped responding.
+void Relaunch(const NbaMod& next) {
   {
     std::lock_guard<std::mutex> guard(g_lock);
     if (g_swapping) return;
@@ -240,6 +221,43 @@ void NbaModSwapTo(const NbaMod& next) {
   // process holds open - the archives above all - has to be let go before it
   // gets there.
   TerminateProcess(GetCurrentProcess(), 0);
+}
+
+}  // namespace
+
+bool NbaModList(std::vector<NbaMod>* mods, size_t* active) {
+  const std::string root = GameDataRoot();
+  std::string id;
+  mods->clear();
+  *active = 0;
+  if (root.empty() || !ReadList(root, mods, &id)) {
+    REXLOG_WARN("mods: no mods.list in '{}' - run tools/dlc.py stage", root);
+    return false;
+  }
+  for (size_t i = 0; i < mods->size(); ++i) {
+    if ((*mods)[i].id == id) *active = i;
+  }
+  return true;
+}
+
+void NbaModRestart() {
+  NbaMod here;
+  here.id = "restart";
+  here.name = "this game again";
+  here.path = GameDataRoot();
+  if (here.path.empty()) {
+    REXLOG_ERROR("restart: there is no game root to come back to");
+    return;
+  }
+  Relaunch(here);
+}
+
+void NbaModSwapTo(const NbaMod& next) {
+  if (next.path.empty() || next.path == GameDataRoot()) {
+    REXLOG_INFO("mod swap: '{}' is the one already running", next.name);
+    return;
+  }
+  Relaunch(next);
 }
 
 bool NbaModSwapIsRelaunch() { return g_relaunched; }

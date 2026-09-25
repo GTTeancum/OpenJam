@@ -7,6 +7,7 @@
 #include <cstdint>
 
 struct ImFontAtlas;
+struct ImFont;
 
 namespace rex {
 namespace input {
@@ -24,6 +25,13 @@ class ImGuiDrawer;
 // the runtime's debug font. Call from OnConfigureFonts; missing files are not
 // an error, the list just falls back to the default face.
 void NbaModPickerFonts(ImFontAtlas* atlas);
+
+// The game's two typefaces, once NbaModPickerFonts has loaded them: the one
+// the front end sets headings in, and the one it sets everything else in.
+// Both fall back to the runtime's own face when the game's are not there,
+// so they are never null once ImGui is up.
+ImFont* NbaDisplayFont();
+ImFont* NbaTextFont();
 
 // The runtime's input system: where the chooser reads the pad's effect on the
 // game from, so that the menu underneath holds still while the list is being

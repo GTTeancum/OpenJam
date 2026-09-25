@@ -73,6 +73,10 @@ void NbaGuestFrame() {
   g_guest_frames.fetch_add(1, std::memory_order_relaxed);
 }
 
+unsigned long long NbaGuestFrameCount() {
+  return g_guest_frames.load(std::memory_order_relaxed);
+}
+
 const std::string& NbaWindowTitle() { return kTitle; }
 
 void NbaTrackFrameRateInTitle(rex::ui::ImGuiDrawer* drawer,

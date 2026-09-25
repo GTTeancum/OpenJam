@@ -19,6 +19,9 @@ const std::string& NbaWindowTitle();
 // One guest frame, counted where the game reads the pad.
 void NbaGuestFrame();
 
+// How many the game has had. Only useful for telling moving from stopped.
+unsigned long long NbaGuestFrameCount();
+
 // Start keeping the frame rate in the title. Safe to call once the window and
 // the ImGui drawer both exist.
 void NbaTrackFrameRateInTitle(rex::ui::ImGuiDrawer* drawer,

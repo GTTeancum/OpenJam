@@ -745,6 +745,10 @@ void NbaModPickerUseInput(rex::input::InputSystem* input) {
   });
 }
 
+ImFont* NbaDisplayFont() { return Display(); }
+
+ImFont* NbaTextFont() { return Text(); }
+
 void NbaModPickerCreate(rex::ui::ImGuiDrawer* drawer) {
   if (!drawer) return;
   // A dialog adds itself to the drawer and is owned by it from then on; this

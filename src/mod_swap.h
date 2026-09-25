@@ -33,6 +33,11 @@ bool NbaModList(std::vector<NbaMod>* mods, size_t* active);
 // works: this process is replaced by the new one.
 void NbaModSwapTo(const NbaMod& mod);
 
+// Start this same game again from the beginning. For a game that has stopped
+// responding and cannot be got out of any other way; see src/watchdog.cpp.
+// Does not return when it works.
+void NbaModRestart();
+
 // Which game root is being played. A staged game is started by
 // double-clicking it, with nothing on the command line at all, so the only
 // thing that knows is whatever resolved the paths.

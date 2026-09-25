@@ -10,8 +10,10 @@
 #include <system_error>
 
 #include "mod_picker.h"
+#include "null_page.h"
 #include "mod_saves.h"
 #include "mod_swap.h"
+#include "watchdog.h"
 #include "window_title.h"
 
 #include <rex/cvar.h>
@@ -119,6 +121,12 @@ class NbajamOfeApp : public rex::ReXApp {
 
   // The window is named after the executable unless something says otherwise.
   void OnPostSetup() override {
+    // The guest's memory exists by now, and address zero is the one part of
+    // it the console left unmapped. See src/null_page.cpp for why this port
+    // maps it.
+    NbaMapNullPage();
+    // A game that stops dead says nothing about why on its own.
+    NbaStartWatchdog();
     // The chooser reads the controller itself and needs to be able to hold
     // the game's own input still while it does; see src/mod_picker.cpp.
     NbaModPickerUseInput(
@@ -133,6 +141,7 @@ class NbajamOfeApp : public rex::ReXApp {
       // A swap replaces the process, and a new process starts behind the one
       // it replaced unless it is told otherwise. See src/mod_swap.cpp.
       NbaModSwapTakeForeground(window()->GetNativeWindowHandle());
+      NbaWatchdogWatchWindow(window()->GetNativeWindowHandle());
     }
     rex::ReXApp::OnPostSetup();
   }
@@ -150,6 +159,7 @@ class NbajamOfeApp : public rex::ReXApp {
   void OnCreateDialogs(rex::ui::ImGuiDrawer* drawer) override {
     NbaTrackFrameRateInTitle(drawer, window());
     NbaModPickerCreate(drawer);
+    NbaWatchdogCreate(drawer);
     rex::ReXApp::OnCreateDialogs(drawer);
   }
 };
