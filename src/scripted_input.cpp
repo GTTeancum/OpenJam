@@ -36,11 +36,11 @@
 // 150), and then the next step's delay begins. WAIT presses nothing.
 //
 // Buttons: A B X Y START BACK LB RB LT RT UP DOWN LEFT RIGHT WAIT.
-// Join them with '+' to hold several at once, as in BACK+Y.
+// Join them with '+' to hold several at once, as in LT+Y.
 
 #include "scripted_input.h"
 
-#include "mod_swap.h"
+#include "mod_picker.h"
 #include "window_title.h"
 
 #include <windows.h>
@@ -69,11 +69,18 @@ struct Named {
   uint16_t bits;
 };
 
+// The two triggers are not buttons - they are a byte each, further into the
+// gamepad - so they get the two bits XINPUT leaves unused and are turned back
+// into trigger bytes on the way out.
+constexpr uint16_t kFakeLeftTrigger = 0x0400;
+constexpr uint16_t kFakeRightTrigger = 0x0800;
+
 constexpr Named kButtons[] = {
     {"UP", 0x0001},   {"DOWN", 0x0002},  {"LEFT", 0x0004},  {"RIGHT", 0x0008},
     {"START", 0x0010}, {"BACK", 0x0020}, {"LS", 0x0040},    {"RS", 0x0080},
     {"LB", 0x0100},   {"RB", 0x0200},    {"A", 0x1000},     {"B", 0x2000},
     {"X", 0x4000},    {"Y", 0x8000},     {"WAIT", 0x0000},
+    {"LT", kFakeLeftTrigger}, {"RT", kFakeRightTrigger},
 };
 
 struct Step {
@@ -88,6 +95,38 @@ std::once_flag g_once;
 uint64_t g_first_tick = 0;
 int g_reported = -1;
 bool g_active = false;
+
+// What the pad is really sending, written down the first few times it
+// changes. Two questions get answered by it and nothing else does: whether
+// the kernel is handing this hook a controller at all, and whether the
+// trigger is where the gamepad structure says it is. Cheap: a comparison per
+// frame once the lines are used up.
+void Witness(uint32_t pad, uint32_t status, const uint8_t* st) {
+  static int said = 0;
+  static uint32_t was[4] = {0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF};
+  static uint64_t was_state[4] = {~0ull, ~0ull, ~0ull, ~0ull};
+  if (pad >= 4) return;
+  const uint64_t state =
+      st ? (uint64_t(st[4]) << 24 | uint64_t(st[5]) << 16 |
+            uint64_t(st[6]) << 8 | uint64_t(st[7]))
+         : 0;
+  if (status == was[pad] && state == was_state[pad]) return;
+  was[pad] = status;
+  was_state[pad] = state;
+  if (said >= 40) return;
+  ++said;
+  REXLOG_INFO("pad {}: status 0x{:X} buttons 0x{:04X} LT {} RT {}", pad, status,
+              st ? unsigned(st[4]) << 8 | st[5] : 0u, st ? st[6] : 0,
+              st ? st[7] : 0);
+}
+
+// Hand the game an untouched pad. Used while the mod picker is open, so that
+// moving down its list does not also move down the menu behind it.
+void Silence(uint8_t* st) {
+  st[4] = 0;
+  st[5] = 0;
+  std::memset(st + 6, 0, 10);
+}
 
 std::string EnvStr(const char* name) {
   char buf[1024]{};
@@ -172,12 +211,28 @@ void NbaScriptedInput(PPCRegister& r1, PPCRegister& r26, PPCRegister& r3) {
   std::call_once(g_once, Parse);
   if (!g_active) {
     // Nothing to inject, but this is still the one place in the frame where
-    // the pad has been read and not yet used, so it is where src/mod_swap.cpp
+    // the pad has been read and not yet used, so it is where the mod chooser
     // gets to see it.
-    if (r26.u32 == 0 && r3.u32 == 0) {
-      const uint8_t* st =
-          reinterpret_cast<const uint8_t*>(kGuestVirtualBase + r1.u32 + kStateOffset);
-      NbaModSwapPad(uint16_t(st[4] << 8 | st[5]));
+    //
+    // Whichever pad is really there, not pad zero. A controller does not have
+    // to arrive as player one: the game polls all four every frame and the
+    // kernel says which of them exists, and on the machine this was written
+    // for the answer was not the first. The first one that reports itself is
+    // the one listened to from then on, so that three empty pads reporting
+    // nothing every frame cannot undo what the real one is doing.
+    static uint32_t which = 0xFFFFFFFF;
+    const bool present = r3.u32 == 0;
+    uint8_t* st =
+        reinterpret_cast<uint8_t*>(kGuestVirtualBase + r1.u32 + kStateOffset);
+    Witness(r26.u32, r3.u32, present ? st : nullptr);
+    if (present && which == 0xFFFFFFFF) {
+      which = r26.u32;
+      REXLOG_INFO("pad {} is the one the chooser listens to", which);
+    }
+    if (present && r26.u32 == which) {
+      if (NbaModPickerPad(uint16_t(st[4] << 8 | st[5]), st[6])) {
+        Silence(st);
+      }
     }
     return;
   }
@@ -241,10 +296,23 @@ void NbaScriptedInput(PPCRegister& r1, PPCRegister& r26, PPCRegister& r3) {
   st[1] = uint8_t(packet >> 16);
   st[2] = uint8_t(packet >> 8);
   st[3] = uint8_t(packet);
-  st[4] = uint8_t(inject >> 8);
-  st[5] = uint8_t(inject);
-  std::memset(st + 6, 0, 10);   // triggers and both sticks centred
+  const uint16_t wbuttons = uint16_t(inject & ~(kFakeLeftTrigger |
+                                                kFakeRightTrigger));
+  st[4] = uint8_t(wbuttons >> 8);
+  st[5] = uint8_t(wbuttons);
+  std::memset(st + 6, 0, 10);   // both sticks centred
+  if (inject & kFakeLeftTrigger) st[6] = 0xFF;
+  if (inject & kFakeRightTrigger) st[7] = 0xFF;
+  // A test can ask for the left trigger to be held down for the whole run.
+  // The mod chooser stays up only while it is held, and a script presses a
+  // step and lets go, so there is otherwise no way to drive the chooser from
+  // one - see src/mod_picker.cpp.
+  if (EnvNum("NBAJAM_INPUT_LT_HELD", 0)) st[6] = 0xFF;
 
   r3.u32 = 0;   // ERROR_SUCCESS: tell the game the pad is there
-  NbaModSwapPad(inject);
+  // A script drives the mod picker as a person would, which is what makes it
+  // testable without a controller plugged in.
+  if (NbaModPickerPad(wbuttons, st[6])) {
+    Silence(st);
+  }
 }

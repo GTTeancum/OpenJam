@@ -30,6 +30,8 @@ set(NBAJAMOFE_SOURCES
     src/apt_trace.cpp
     src/mod_saves.cpp
     src/mod_swap.cpp
+    src/mod_picker.cpp
+    src/host_pad.cpp
     src/window_title.cpp
 )
 

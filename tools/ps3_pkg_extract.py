@@ -141,5 +141,13 @@ def main(argv):
     return 0
 
 
+def extract(pkg_path, out_dir):
+    """Open a package from another program. Raises when it cannot."""
+    code = main([str(pkg_path), str(out_dir)])
+    if code:
+        raise RuntimeError("could not open {}".format(pkg_path))
+    return out_dir
+
+
 if __name__ == "__main__":
     sys.exit(main(sys.argv[1:]))

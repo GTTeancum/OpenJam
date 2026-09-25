@@ -176,6 +176,72 @@ def ps3_to_dds(blob):
     return bytes(hdr) + blob[data_off:data_off + used], (w, h, fourcc.decode(), mips)
 
 
+def tiled_offset(x, y, width, texel_pitch):
+    """Where a block really sits, the 360's own XGAddress2DTiledOffset.
+
+    The Xenos reads a texture in tiles rather than row by row, so the blocks
+    in an XPR2 payload are not in reading order. This is the address swizzle
+    the hardware uses, with x and y in blocks and texel_pitch the bytes per
+    block - 8 for DXT1, 16 for DXT3 and DXT5.
+    """
+    aligned_width = (width + 31) & ~31
+    log_bpp = (texel_pitch >> 2) + ((texel_pitch >> 1) >> (texel_pitch >> 2))
+    macro = ((x >> 5) + (y >> 5) * (aligned_width >> 5)) << (log_bpp + 7)
+    micro = ((x & 7) + ((y & 6) << 2)) << log_bpp
+    offset = (macro + ((micro & ~15) << 1) + (micro & 15) +
+              ((y & 8) << (3 + log_bpp)) + ((y & 1) << 4))
+    return ((((offset & ~511) << 3) + ((offset & 448) << 2) + (offset & 63) +
+             ((y & 16) << 7) + (((((y & 8) >> 2) + (x >> 3)) & 3) << 6)) >>
+            log_bpp)
+
+
+# What the fetch constant calls each compressed format, and its block size.
+XPR2_FOURCC = {18: b"DXT1", 19: b"DXT3", 20: b"DXT5"}
+XPR2_BLOCK = {18: 8, 19: 16, 20: 16}
+
+
+def xpr2_to_dds(blob):
+    """A 360 texture as a plain DDS: untiled, and byte swapped back.
+
+    Returns (dds bytes, width, height) or raises ValueError for a format this
+    does not handle. The fields are read the way tools/ast_repack.py writes
+    them, which is how the stock archives have them.
+    """
+    _name, off, size, desc = xpr2_layout(blob)
+    w1, w2 = struct.unpack_from(">2I", blob, desc + 4)
+    fmt = w1 & 0x3F
+    endian = (w1 >> 6) & 3
+    width = (w2 & 0x1FFF) + 1
+    height = ((w2 >> 13) & 0x1FFF) + 1
+    if fmt not in XPR2_FOURCC:
+        raise ValueError("format {} is not a DXT one".format(fmt))
+    src = blob[off:off + size]
+    if endian:
+        src = bytes(b for pair in zip(src[1::2], src[0::2]) for b in pair)
+    bpb = XPR2_BLOCK[fmt]
+    bw, bh = max(1, (width + 3) // 4), max(1, (height + 3) // 4)
+    out = bytearray(bw * bh * bpb)
+    for by in range(bh):
+        for bx in range(bw):
+            at = tiled_offset(bx, by, bw, bpb) * bpb
+            if at + bpb <= len(src):
+                out[(by * bw + bx) * bpb:(by * bw + bx) * bpb + bpb] = \
+                    src[at:at + bpb]
+
+    hdr = bytearray(128)
+    hdr[0:4] = b"DDS "
+    struct.pack_into("<I", hdr, 4, 124)
+    struct.pack_into("<I", hdr, 8, 0x1 | 0x2 | 0x4 | 0x1000 | 0x80000)
+    struct.pack_into("<I", hdr, 12, height)
+    struct.pack_into("<I", hdr, 16, width)
+    struct.pack_into("<I", hdr, 20, len(out))
+    struct.pack_into("<I", hdr, 76, 32)
+    struct.pack_into("<I", hdr, 80, 0x4)
+    hdr[84:88] = XPR2_FOURCC[fmt]
+    struct.pack_into("<I", hdr, 108, 0x1000)
+    return bytes(hdr) + bytes(out), width, height
+
+
 def cmd_list(args):
     a = Ast(args.archive)
     print("{}  BGFA {}  {} entries".format(

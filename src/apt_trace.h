@@ -10,4 +10,10 @@
 
 // 0x82330438, the ActionScript execution loop. r4 is the block of bytecode to
 // run and r6 its length, with a flag in the top bit.
-void NbaAptBlock(PPCRegister& r4, PPCRegister& r6);
+void NbaAptBlock(PPCRegister& r3, PPCRegister& r4, PPCRegister& r5,
+                 PPCRegister& r6);
+
+// Whether the game is showing its main menu, which is the one screen the mod
+// chooser belongs on. Cheap: a comparison against a timestamp the script hook
+// keeps up to date. See apt_trace.cpp for how it knows.
+bool NbaFrontEndOnMainMenu();

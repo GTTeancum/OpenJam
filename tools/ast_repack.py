@@ -289,7 +289,7 @@ def is_dds(b):
             struct.unpack_from("<I", b, 4)[0] == 124)
 
 
-def dds_to_xpr2(b, _name):
+def dds_to_xpr2(b, _name, pitches=None):
     """A DDS texture, whose blocks are in PC order.
 
     Named the way the game names its own: every texture in a front-end archive
@@ -308,7 +308,7 @@ def dds_to_xpr2(b, _name):
         return None
     row = max(1, (w + texels - 1) // texels) * unit
     return build_xpr2("strName", w, h, fmt, unit, texels, endian, swizzle,
-                      b[0x80:], row)
+                      b[0x80:], row, (pitches or {}).get(("strname", w, h, fmt)))
 
 
 # Every XPR2 texture in the stock archives carries the same 28 bytes in front
@@ -319,7 +319,8 @@ XPR2_RECORD_PREFIX = bytes.fromhex(
     "ffff0000" "ffff0000")
 
 
-def build_xpr2(name, w, h, fmt, unit, texels, endian, swizzle, src, src_pitch):
+def build_xpr2(name, w, h, fmt, unit, texels, endian, swizzle, src, src_pitch,
+               pitch_texels=None):
     """An XPR2 resource with linear, untiled pixel data.
 
     A 360 texture is an XPR2 resource whose header ends in a GPU texture fetch
@@ -334,14 +335,26 @@ def build_xpr2(name, w, h, fmt, unit, texels, endian, swizzle, src, src_pitch):
     """
     rows = max(1, (h + texels - 1) // texels)
     row = max(1, (w + texels - 1) // texels) * unit
-    # The row stride is not the width. Measured across 735 stock front-end
-    # textures, every one declares a pitch of its width rounded up to a
-    # multiple of 128 texels and never less than 128: 32 wide says 128, 144
-    # says 256, 272 and 360 both say 384. The hardware reads rows at that
-    # stride whatever the header claims, which is why a 32x32 glyph padded to
-    # any smaller figure comes out torn, with slices of itself below where
-    # they belong.
-    pitch_texels = max(128, (w + 127) // 128 * 128)
+    # The row stride is not the width, and it is not always the same rule.
+    #
+    # Measured across 735 stock front-end textures, every one declares a pitch
+    # of its width rounded up to a multiple of 128 texels and never less than
+    # 128: 32 wide says 128, 144 says 256, 272 and 360 both say 384. The
+    # hardware reads rows at that stride whatever the header claims, which is
+    # why a 32x32 glyph padded to any smaller figure comes out torn, with
+    # slices of itself below where they belong.
+    #
+    # Those were all compressed, and on an uncompressed texture the disc says
+    # something else: the five 64x64 body maps in ge_player_big.ast declare 64,
+    # not 128. Giving them 128 doubles every row's stride and the player comes
+    # out in rainbow stripes from the neck down - jersey, shorts, arms and
+    # legs, while the face, which is a compressed texture, stays perfect.
+    #
+    # So where the disc ships the same texture, its own figure is used, and
+    # the measured rule is only the fallback for textures the disc has never
+    # seen. See stock_pitches().
+    if pitch_texels is None:
+        pitch_texels = max(128, (w + 127) // 128 * 128)
     pitch = (pitch_texels // texels) * unit
     if len(src) < src_pitch * (rows - 1) + row:
         return None
@@ -391,7 +404,42 @@ def build_xpr2(name, w, h, fmt, unit, texels, endian, swizzle, src, src_pitch):
     return bytes(hdr) + bytes(pixels)
 
 
-def ps3_to_xpr2(b, name):
+def stock_pitches(path):
+    """What the disc declares as the row stride for each texture it ships.
+
+    Keyed by name and shape together: front-end archives call every texture
+    `strName`, so a name alone identifies nothing there, and a wrong match
+    would be worse than no match.
+    """
+    out = {}
+    try:
+        a = Archive(path)
+    except Exception:
+        return out
+    for e in a.entries:
+        try:
+            blob = a.read(e)
+        except Exception:
+            continue
+        if blob[:4] != b"XPR2":
+            continue
+        try:
+            desc = struct.unpack_from(">I", blob, 0x14)[0] + 40
+            w0, w1, w2 = struct.unpack_from(">3I", blob, desc)
+        except Exception:
+            continue
+        name = blob[0x24:].split(bytes([0]))[0].decode("latin-1")
+        key = (name, (w2 & 0x1FFF) + 1, ((w2 >> 13) & 0x1FFF) + 1, w1 & 0x3F)
+        pitch = ((w0 >> 22) & 0x1FF) * 32
+        # A name that turns up twice with different answers is no use.
+        if key in out and out[key] != pitch:
+            out[key] = None
+        else:
+            out[key] = pitch
+    return out
+
+
+def ps3_to_xpr2(b, name, pitches=None):
     """A PS3 texture, whose blocks are already in the order the 360 GPU reads."""
     fmt, unit, texels, endian, swizzle = RSX_FORMATS[b[0x18]]
     w, h = struct.unpack_from(">HH", b, 0x20)
@@ -403,10 +451,26 @@ def ps3_to_xpr2(b, name):
     src_pitch = ((row + LINEAR_ROW_ALIGN - 1) // LINEAR_ROW_ALIGN *
                  LINEAR_ROW_ALIGN) if texels == 1 else row
     return build_xpr2(name, w, h, fmt, unit, texels, endian, swizzle,
-                      b[0x80:], src_pitch)
+                      b[0x80:], src_pitch,
+                      (pitches or {}).get((name.lower(), w, h, fmt)))
 
 
-def dds_is_the_games_own(path):
+def holds_dds(path):
+    """Whether this archive stores its textures as plain DDS."""
+    try:
+        a = Archive(path)
+    except Exception:
+        return False
+    for e in a.entries:
+        try:
+            if a.read(e)[:4] == b"DDS ":
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def dds_is_the_games_own(path, stock=None):
     """Whether the DDS in this archive is the disc's business rather than ours.
 
     DDS is not a mod's invention: the stock 360 game ships thousands of them in
@@ -417,26 +481,34 @@ def dds_is_the_games_own(path):
     slices of itself below where it belongs. Converting those here, where the
     rows can be laid out properly, is what fixes them.
 
-    The front-end packs under bigs/ are the exception, and not a small one:
-    converting their textures takes the game down on the team select screen,
-    reading through a null texture, every time. The stock build fills those
-    same packs with the same DDS, so whatever reads them wants exactly what
-    the disc has. They are left alone, and nothing in them looked wrong.
+    Some archives are the exception, and the disc says which. Where the stock
+    360 game keeps plain DDS in an archive, whatever reads that archive wants
+    plain DDS and nothing else: converting the front-end packs under bigs/
+    takes the game down on team select, and converting genbigs/ - the jersey
+    numbers - takes it down as a match loads, both reading through a null
+    texture. So the question is put to the disc's own copy of the same file
+    rather than guessed from where it sits.
+
+    With no stock copy to ask - a file the mod adds outright - the old rule
+    stands, which is that bigs/ is left alone.
     """
+    if stock is not None and os.path.isfile(str(stock)):
+        return holds_dds(str(stock))
     return "bigs" in str(path).replace("\\", "/").split("/")
 
 
-def repack(src, dst, quiet=False):
+def repack(src, dst, stock=None, quiet=False):
     a = Archive(src)
-    convert_dds = not dds_is_the_games_own(src)
+    convert_dds = not dds_is_the_games_own(src, stock)
+    pitches = stock_pitches(str(stock)) if stock is not None else {}
     payloads = {}
     converted = kept = failed = 0
     for e in a.entries:
         blob = a.read(e)
         if is_ps3_texture(blob):
-            out = ps3_to_xpr2(blob, e["name"])
+            out = ps3_to_xpr2(blob, e["name"], pitches)
         elif is_dds(blob) and convert_dds:
-            out = dds_to_xpr2(blob, e["name"])
+            out = dds_to_xpr2(blob, e["name"], pitches)
         else:
             kept += 1
             continue

@@ -43,4 +43,4 @@ registers = ["r1", "r26", "r3"]
 [[midasm_hook]]
 address = 0x82330438
 name = "NbaAptBlock"
-registers = ["r4", "r6"]
+registers = ["r3", "r4", "r5", "r6"]

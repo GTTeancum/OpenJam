@@ -9,6 +9,41 @@ for x86-64.
 
 ![In-game: Heat vs Mavericks](screenshots/ingame_heat_vs_mavs.png)
 
+## Playing it
+
+You need your own copy of the game. NBA JAM: On Fire Edition was sold on Xbox
+Live Arcade, and a purchased copy sits on the console's drive as a single
+signed container file. Nothing here ships game content and nothing here will
+get you a copy.
+
+Download the release, unzip it next to that container file, and run
+**NBA JAM Mod Manager.exe**. It unpacks the game, sets the folder up, and from
+then on it is the one window you need: install a mod, choose which one loads,
+play. See [RELEASE.md](RELEASE.md) for what is in the download and what it
+does.
+
+![The mod manager](screenshots/mod_manager.png)
+
+### Mods
+
+The PS3 modding scene for this game is alive and its mods run here. They are
+published as PlayStation 3 packages; the manager opens one, converts its
+artwork into the format this build reads, and gives it a game folder and a
+save file of its own. Installed mods are listed on the game's own main menu,
+in the panel where JAMnet used to be:
+
+![The mod list on the main menu](screenshots/menu_mod_list.png)
+
+Hold the left trigger and press Y there and the panel wakes up: the orange box
+becomes a cursor, A loads what it is on, and the game comes back up in that
+mod about fifteen seconds later.
+
+![Choosing a mod](screenshots/menu_mod_chooser.png)
+
+johnz1's 1990s edition, in play:
+
+![NBA JAM 1990s On Fire Edition](screenshots/mod_1990s_in_play.png)
+
 ## What this repository contains
 
 The port project only — the configuration, hand-written source, and the tooling
@@ -20,9 +55,10 @@ the title; the build reads an extracted XBLA package and never redistributes it.
 | `nbajam_ofe_manifest.toml` | Entry point for codegen |
 | `nbajam_ofe_config.toml` | Hand-derived function boundaries |
 | `nbajam_ofe_gaps.toml` | Functions recovered from gaps discovery missed |
-| `src/` | Kernel stubs, diagnostics, instruction fixups, the app class |
-| `tools/` | Gap recovery, guest debugging, and the post-codegen instruction repair |
+| `src/` | Kernel stubs, diagnostics, instruction fixups, the mod chooser, the app class |
+| `tools/` | Gap recovery, guest debugging, the post-codegen instruction repair, the mod pipeline and the manager |
 | `templates/` | One codegen template override |
+| `RELEASE.md` | What a release contains and what a player has to provide |
 
 `generated/` (≈166 MB, 5.7M lines) and `out/` are reproducible and not tracked.
 
@@ -36,8 +72,13 @@ Boots to gameplay, and runs as the full version rather than a trial. Roughly
 resolve; graphics, audio, input and the achievement store all initialize. The
 EA Sports intro video decodes correctly.
 
+PS3 mods run on it. Two of the three published ones play through a full match;
+the third falls over on the way into one and is being chased.
+
 Known rough edges: the Xenos backend logs a stream of "invalid" texture fetch
-constant warnings during play, and `memmap:\clips\` is unmapped.
+constant warnings during play, and `memmap:\clips\` is unmapped. The manager
+cannot yet unpack a player's own container - that one step still needs an
+outside tool, and is the next thing to write.
 
 ## Notes
 

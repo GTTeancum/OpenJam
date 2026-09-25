@@ -25,6 +25,7 @@ Usage:
 import argparse
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -92,10 +93,10 @@ ART_W, ART_H = 2.0, 1.63
 PANEL_TEXT = "TXT_JAMNET_REQUIRED_CONNECTION"
 
 # And the footer's name for the Y button, which used to open the storefront.
-# It takes BACK as well, so that a restart cannot happen by accident in a
-# match - see src/mod_swap.cpp for why the runtime cannot simply tell which
-# screen is up.
-FOOTER_Y = ("TXT_DOWNLOAD_CONTENT", "Activate mod (+BACK)")
+# It takes the left trigger as well, so that a restart cannot happen by
+# accident in a match - see src/mod_swap.cpp for why the runtime cannot simply
+# tell which screen is up, and why the second input is not Back.
+FOOTER_Y = ("TXT_DOWNLOAD_CONTENT", "Choose a mod (+LT)")
 
 # And one button taken off it: Share the Shove! recommended the game to a
 # friend over Xbox Live.
@@ -107,7 +108,7 @@ def expendable(token):
     return token.startswith("OSDK_OL")
 
 
-FOOTNOTE = "BACK+Y loads the next mod. Mods live in the DLC folder."
+FOOTNOTE = "Hold LT and press Y to change mods. F9 does it too."
 
 
 def panel_text(mods, active):
@@ -146,6 +147,28 @@ def replace(path):
     return str(path)
 
 
+# Where a root keeps the three files this rewrites, exactly as they arrived.
+#
+# The rewrite is not something that can be done twice: it takes the dead Xbox
+# Live entries out of the menu and puts the mod list in the panel, and run
+# again it finds neither of the things it is looking for. But it does have to
+# be done again - every time a mod is installed or removed, every other root's
+# list is out of date - so each root keeps the originals and starts from them.
+ORIGINALS = "ui.original"
+
+
+def keep_original(root, path):
+    """The untouched file, restored if it is already kept, saved if not."""
+    stash = Path(root) / ORIGINALS / Path(path).name
+    if stash.is_file():
+        if path.exists():
+            path.unlink()               # never write through a hard link
+        shutil.copy2(stash, path)
+    else:
+        stash.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(path, stash)
+
+
 def apply(root, mods=(), active=None, language="eng_us"):
     """Rewrite one game root's menu, panel and text. Returns what it did."""
     root = Path(root)
@@ -154,6 +177,7 @@ def apply(root, mods=(), active=None, language="eng_us"):
     for p in (menu, panel, strings):
         if not p.exists():
             raise SystemExit("%s: not a game root (no %s)" % (root, p.name))
+        keep_original(root, p)
 
     done = []
 
