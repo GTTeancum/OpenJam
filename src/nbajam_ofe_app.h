@@ -11,6 +11,7 @@
 
 #include "mod_picker.h"
 #include "null_page.h"
+#include "unpack_container.h"
 #include "mod_saves.h"
 #include "mod_swap.h"
 #include "watchdog.h"
@@ -38,6 +39,11 @@ class NbajamOfeApp : public rex::ReXApp {
 
   static std::unique_ptr<rex::ui::WindowedApp> Create(
       rex::ui::WindowedAppContext& ctx) {
+    // `--unpack <container>` gets the game out of an Xbox Live download and
+    // stops. It is done here, before anything is set up, because there is no
+    // game to start yet - that is the whole point of asking. See
+    // src/unpack_container.cpp.
+    NbaUnpackIfAsked();
     return std::unique_ptr<NbajamOfeApp>(new NbajamOfeApp(ctx, "nbajam_ofe",
         PPCImageConfig));
   }

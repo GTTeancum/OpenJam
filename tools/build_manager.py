@@ -76,6 +76,13 @@ def main():
             # Read at runtime from the files rather than imported by name.
             "--hidden-import", "PIL.Image",
             "--hidden-import", "Crypto.Cipher.AES",
+            # Imported inside a function, so nothing that reads the source
+            # top-down can see it - and without it, opening a mod's package
+            # fails in the built executable and nowhere else.
+            "--hidden-import", "ps3_pkg_extract",
+            "--hidden-import", "roster_update",
+            "--hidden-import", "verify_assets",
+            "--paths", str(HERE),
             str(HERE / "modmanager.py")]
     if icon:
         argv[argv.index("--windowed") + 1:argv.index("--windowed") + 1] = [

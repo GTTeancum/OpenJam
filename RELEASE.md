@@ -50,13 +50,13 @@ exist today are johnz1's 1990s, 2020s and Legends editions.
 
 ## 3. First run
 
-The manager opens, finds no game beside it, and asks for the container. Then,
-without further questions:
+The manager opens, finds no game beside it, finds the container instead, and
+offers to unpack it. One button. Then, without further questions:
 
-1. **Unpack the container.** STFS is a block-structured filesystem inside one
-   file; a `LIVE`-signed package is not encrypted, so this is a read and a
-   walk of its block tables. Out comes `default.xex` and the `data/` tree -
-   about 840 MB.
+1. **Unpack the container.** The game does this itself - `nbajam_ofe.exe
+   --unpack <container>` - using the container reader the runtime already
+   carries; the manager runs it and draws the progress bar. Out comes
+   `default.xex` and the `data/` tree, about 840 MB, in a few seconds.
 2. **Unpack the two typefaces and the five button pictures** the port draws
    its own screens with, out of the game's own archives, into `ui/`.
 3. **Rewrite the front end.** The dead Xbox Live entries come out of the main
@@ -115,9 +115,7 @@ The release archive is that folder with `data/`, `default.xex`, `mods/`,
 
 | | Why it matters | Size of the job |
 | --- | --- | --- |
-| **The container reader** | This is the gap. `Root/` on this machine was unpacked with an outside tool, so nothing in the release can do step 1 yet. A `LIVE` package's payload is not encrypted - it is a header, a volume descriptor and a block-linked file table - so this is parsing, not cryptography. | A day. |
-| **Setup in the manager** | The manager installs mods into a game folder that already exists. It needs the first-run path: container in, game folder out. The pieces all exist as `dlc.py stage` and would move across. | Half a day. |
-| **`README.txt`** | One page: copy this file off your console, run the manager, press Install. | An hour. |
+Nothing outstanding for a first release.
 
 ## 7. What a player needs
 

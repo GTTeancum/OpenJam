@@ -29,6 +29,7 @@ set(NBAJAMOFE_SOURCES
     src/scripted_input.cpp
     src/apt_trace.cpp
     src/null_page.cpp
+    src/unpack_container.cpp
     src/watchdog.cpp
     src/asset_fallback.cpp
     src/mod_saves.cpp

@@ -22,10 +22,12 @@ The copy is made of hard links, so a mod costs what its own files cost rather
 than another four gigabytes.
 """
 
+import glob
 import os
 import re
 import shutil
 import subprocess
+import time
 import sys
 import tempfile
 from pathlib import Path
@@ -33,6 +35,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ast_repack
 import frontend
+import roster_update
+
+# CREATE_NO_WINDOW: keeps a console from flashing over the window.
+NO_WINDOW = 0x08000000
 
 HERE = Path(__file__).resolve().parent
 
@@ -62,6 +68,64 @@ ABOUT = "mod.txt"
 def slugify(text):
     s = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
     return s or "mod"
+
+
+def find_container(folder):
+    """The Xbox Live download in this folder, or None.
+
+    What a player has before anything is unpacked is one file with no
+    extension and a long hexadecimal name, the best part of a gigabyte. That
+    is what this looks for; the game itself checks the header before it
+    believes any of it.
+    """
+    folder = Path(folder)
+    if not folder.is_dir():
+        return None
+    best = None
+    for child in sorted(folder.iterdir()):
+        if not child.is_file() or child.suffix:
+            continue
+        try:
+            if child.stat().st_size < 40 * 1024 * 1024:
+                continue
+        except OSError:
+            continue
+        name = child.name
+        if len(name) >= 16 and all(c in "0123456789abcdefABCDEF" for c in name):
+            return child
+        best = best or child
+    return best
+
+
+def unpack_container(game_exe, container, into, say=print, progress=None):
+    """Get the game out of an Xbox Live download. Returns True when it worked.
+
+    The reading is done by the game itself - it carries the container reader
+    already, and there is no sense writing a second one here. It reports how
+    far along it is in a file beside the game, which is what is watched.
+    """
+    note = Path(into) / "unpacking.txt"
+    if note.exists():
+        note.unlink()
+    say("Unpacking your copy of the game. This takes a minute.")
+    proc = subprocess.Popen(
+        [str(game_exe), "--unpack", str(container), "--into", str(into)],
+        creationflags=NO_WINDOW)
+    while proc.poll() is None:
+        time.sleep(0.25)
+        try:
+            done, total, name = note.read_text(encoding="utf-8").split(" ", 2)
+            if progress:
+                progress(int(done), int(total))
+            say("Unpacking " + name.strip())
+        except Exception:                            # noqa: BLE001
+            pass
+    if note.exists():
+        note.unlink()
+    if proc.returncode != 0 or not is_game_folder(into):
+        return False
+    say("Unpacked.")
+    return True
 
 
 def is_game_folder(path):
@@ -110,8 +174,19 @@ def unpack_here(pkg, into, say):
     """
     sys.path.insert(0, str(HERE))
     import ps3_pkg_extract
-    say("Opening %s" % Path(pkg).name)
-    ps3_pkg_extract.extract(str(pkg), str(into))
+    # These mods are published as a pair: "...-Part_1.pkg", a few hundred
+    # bytes, and "...-Part_2.pkg", which is the whole mod. A PS3 installs
+    # both, and a person picking one naturally picks the first. So whichever
+    # was picked, every part beside it is opened into the same place.
+    parts = [Path(pkg)]
+    m = re.match(r"(.*)-Part_\d+\.pkg$", Path(pkg).name, re.IGNORECASE)
+    if m:
+        siblings = sorted(Path(pkg).parent.glob(glob.escape(m.group(1)) + "-Part_*.pkg"))
+        if siblings:
+            parts = siblings
+    for part in parts:
+        say("Opening %s" % part.name)
+        ps3_pkg_extract.extract(str(part), str(into))
     usrdir = Path(into) / "USRDIR"
     return usrdir if usrdir.is_dir() else Path(into)
 
@@ -291,6 +366,19 @@ def install(game, source, name=None, version="", author="", say=print,
         say("  %d files replaced, %d added, %d archives converted"
             % (replaced, added, converted))
 
+        # EA's last roster update, which every published mod carries because
+        # every published mod's rosters name the players in it. It sits
+        # beside the mod's data rather than inside it, so the loop above did
+        # not see it. Converted and kept beside the game's data, which is
+        # where the game looks for it. See tools/roster_update.py.
+        update = source / roster_update.NAME
+        if update.is_file():
+            try:
+                n = roster_update.install(str(update), str(root), quiet=True)
+                say("  the roster update came too: %d texture(s) converted" % n)
+            except Exception as exc:                 # noqa: BLE001
+                say("  the bundled roster update would not convert: %s" % exc)
+
         # The PS3 audio config asks for data/ps3 by name.
         alias, xenon = root / "data" / "ps3", root / "data" / "xenon"
         if xenon.is_dir() and not alias.exists():
@@ -299,7 +387,7 @@ def install(game, source, name=None, version="", author="", say=print,
                 # over the window every time a mod is installed.
                 subprocess.run(["cmd", "/c", "mklink", "/J", str(alias),
                                 str(xenon)], check=True, capture_output=True,
-                               creationflags=0x08000000)
+                               creationflags=NO_WINDOW)
             except Exception:
                 for p, rel in rel_files(xenon):
                     t = alias / rel
@@ -368,4 +456,4 @@ def play(game):
     root = mods.get(active_id(game), mods[BASE])["path"]
     exe = game / "nbajam_ofe.exe"
     subprocess.Popen([str(exe), '--game_data_root=%s' % root], cwd=root,
-                     creationflags=0x08000000)
+                     creationflags=NO_WINDOW)

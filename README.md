@@ -72,13 +72,11 @@ Boots to gameplay, and runs as the full version rather than a trial. Roughly
 resolve; graphics, audio, input and the achievement store all initialize. The
 EA Sports intro video decodes correctly.
 
-PS3 mods run on it. Two of the three published ones play through a full match;
-the third falls over on the way into one and is being chased.
+PS3 mods run on it. All three published ones install from their original
+packages and play.
 
 Known rough edges: the Xenos backend logs a stream of "invalid" texture fetch
-constant warnings during play, and `memmap:\clips\` is unmapped. The manager
-cannot yet unpack a player's own container - that one step still needs an
-outside tool, and is the next thing to write.
+constant warnings during play, and `memmap:\clips\` is unmapped.
 
 ## Notes
 

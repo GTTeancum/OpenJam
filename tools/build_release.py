@@ -58,9 +58,9 @@ installed - the libraries the game needs are in this folder already.
 SETTING IT UP
 -------------
 
-Run "NBA JAM Mod Manager.exe". It will find your copy of the game, ask once,
-and unpack it. That takes a couple of minutes and about 850 MB. When it is
-done, press Play.
+Run "NBA JAM Mod Manager.exe". It will find your copy of the game and offer
+to unpack it - press "Unpack it". That takes a few seconds and about 850 MB
+beside it; your original file is left alone. When it is done, press Play.
 
 The game opens in a window. A controller is recommended; the menus also work
 with the keyboard.
@@ -69,8 +69,11 @@ MODS
 ----
 
 The PlayStation 3 modding scene for this game is very much alive, and those
-mods run here. They are published as .pkg files. Download one, press "Install
-a mod" and pick it. It takes about two minutes and 700 MB.
+mods run here. They are published as .pkg files, usually in two parts ("Part_1"
+and "Part_2") - keep both in the same folder and pick either one. Press
+"Install a mod" and pick it. Each mod takes two or three minutes and about
+850 MB. All three of the published mods, one after another, take around ten
+minutes on a fast machine; allow fifteen on an ordinary one.
 
 Installed mods appear on the game's own main menu, in the panel on the right.
 Hold the left trigger and press Y there to open the list, move with the d-pad,

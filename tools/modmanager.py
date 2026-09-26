@@ -25,6 +25,7 @@ import os
 import queue
 import sys
 import threading
+import time
 import traceback
 from pathlib import Path
 
@@ -47,11 +48,26 @@ class Relay:
     which is where someone watching would want it anyway.
     """
 
-    def __init__(self, sink):
+    def __init__(self, sink, log=None):
         self.sink = sink
         self.pending = ""
+        # And to a file beside the game, so a failure leaves something behind
+        # to read. A windowed build that goes wrong otherwise leaves a player
+        # with a dialog and nothing to send anyone.
+        self.log = None
+        if log:
+            try:
+                self.log = open(log, "a", encoding="utf-8", errors="replace")
+            except OSError:
+                self.log = None
 
     def write(self, text):
+        if self.log:
+            try:
+                self.log.write(text)
+                self.log.flush()
+            except Exception:                        # noqa: BLE001
+                self.log = None
         self.pending += text
         while "\n" in self.pending:
             line, self.pending = self.pending.split("\n", 1)
@@ -191,9 +207,12 @@ class Manager(tk.Tk):
         self.after(80, self._drain)
         # Anything the working parts print belongs on the status line; in a
         # windowed build there is nowhere else for it to go.
-        relay = Relay(lambda line: self.jobs.put(("say", line)))
-        sys.stdout = relay
-        sys.stderr = relay
+        # Printed lines are already in the log by the time they are queued,
+        # so they are marked as such and not written a second time.
+        self.relay = Relay(lambda line: self.jobs.put(("said", line)),
+                           log=Path(game) / "manager.log")
+        sys.stdout = self.relay
+        sys.stderr = self.relay
 
     # ---------------------------------------------------------------- layout
     def _build(self):
@@ -296,6 +315,21 @@ class Manager(tk.Tk):
     def say(self, line):
         self.status.configure(text=line)
 
+    def note(self, line):
+        """Put a line in the log beside the game, with the time it happened.
+
+        What the installer reports goes to the status line and nowhere else,
+        which is no help to anyone reading about it afterwards.
+        """
+        log = getattr(getattr(self, "relay", None), "log", None)
+        if not log:
+            return
+        try:
+            log.write("%s  %s\n" % (time.strftime("%H:%M:%S"), line))
+            log.flush()
+        except Exception:                            # noqa: BLE001
+            pass
+
     def progress(self, done, total):
         width = self.bar.winfo_width() or 1
         self.bar_fill.configure(width=int(width * done / max(1, total)))
@@ -304,8 +338,10 @@ class Manager(tk.Tk):
         try:
             while True:
                 kind, payload = self.jobs.get_nowait()
-                if kind == "say":
+                if kind in ("say", "said"):
                     self.say(payload)
+                    if kind == "say":
+                        self.note(payload)
                 elif kind == "progress":
                     self.progress(*payload)
                 elif kind == "done":
@@ -405,6 +441,100 @@ class Manager(tk.Tk):
             messagebox.showerror(TITLE, str(exc), parent=self)
 
 
+class FirstRun(tk.Tk):
+    """The one window a player sees before there is a game to manage."""
+
+    def __init__(self, folder, container, game_exe):
+        super().__init__()
+        self.title(TITLE)
+        self.configure(bg=INK)
+        self.resizable(False, False)
+        self.folder, self.container, self.game_exe = folder, container, game_exe
+        self.ok = False
+        # The game's own typefaces live inside the game, which is the thing
+        # that is not unpacked yet, so this one window is set in the system's.
+        head = ("Segoe UI Semibold", 17)
+        body = ("Segoe UI", 10)
+
+        tk.Label(self, text="READY TO SET UP", bg=INK, fg=ORANGE,
+                 font=head).pack(padx=28, pady=(26, 10), anchor="w")
+        blurb = ("Found your copy of the game:\n"
+                 "        {}\n\n"
+                 "It has to be unpacked before it can be played. That takes\n"
+                 "a minute or two and about 850 MB beside it. Your original\n"
+                 "file is left where it is.").format(container.name)
+        tk.Label(self, text=blurb,
+                 bg=INK, fg=TEXT, justify="left",
+                 font=body).pack(padx=28, anchor="w")
+
+        self.status = tk.Label(self, text="", bg=INK, fg=QUIET, font=body)
+        self.status.pack(padx=28, pady=(16, 4), anchor="w")
+        self.bar = tk.Frame(self, bg=ROW, height=10, width=460)
+        self.bar.pack(padx=28, anchor="w")
+        self.bar.pack_propagate(False)
+        self.bar_fill = tk.Frame(self.bar, bg=ORANGE, height=10, width=0)
+        self.bar_fill.place(x=0, y=0)
+
+        row = tk.Frame(self, bg=INK)
+        row.pack(padx=28, pady=(18, 26), anchor="w")
+        style = dict(relief="flat", font=("Segoe UI Semibold", 10), padx=18,
+                     pady=8, bd=0, cursor="hand2", disabledforeground=QUIET)
+        self.go = tk.Button(row, text="Unpack it", command=self.start,
+                            bg=ORANGE, fg=INK, activebackground="#ffb864",
+                            activeforeground=INK, **style)
+        self.go.pack(side="left")
+        tk.Button(row, text="Not now", command=self.destroy, bg=ROW, fg=TEXT,
+                  activebackground=LINE, activeforeground=TEXT,
+                  **style).pack(side="left", padx=(10, 0))
+        self.jobs = queue.Queue()
+        self.after(80, self._drain)
+
+    def _drain(self):
+        try:
+            while True:
+                kind, payload = self.jobs.get_nowait()
+                if kind == "say":
+                    self.status.configure(text=payload)
+                elif kind == "progress":
+                    done, total = payload
+                    w = self.bar.winfo_width() or 1
+                    self.bar_fill.configure(width=int(w * done / max(1, total)))
+                elif kind == "done":
+                    self.ok = payload
+                    if not payload:
+                        messagebox.showerror(
+                            TITLE, "That file would not unpack. It should be "
+                                   "the one from your console's drive, about "
+                                   "850 MB, with no file extension.")
+                    self.destroy()
+        except queue.Empty:
+            pass
+        self.after(80, self._drain)
+
+    def start(self):
+        self.go.configure(state="disabled")
+
+        def work():
+            ok = False
+            try:
+                ok = modkit.unpack_container(
+                    self.game_exe, self.container, self.folder,
+                    say=lambda s: self.jobs.put(("say", s)),
+                    progress=lambda d, t: self.jobs.put(("progress", (d, t))))
+            except Exception:                        # noqa: BLE001
+                traceback.print_exc()
+            self.jobs.put(("done", ok))
+
+        threading.Thread(target=work, daemon=True).start()
+
+
+def first_run(folder, container, game_exe):
+    """Offer to unpack. True when there is a game afterwards."""
+    window = FirstRun(folder, container, game_exe)
+    window.mainloop()
+    return window.ok and modkit.is_game_folder(folder)
+
+
 def main():
     # Packaged, it sits in the game folder. Run from the source tree it has to
     # be told, or it looks for the staged game beside the port.
@@ -436,12 +566,28 @@ def main():
             if sibling.is_dir() and modkit.is_game_folder(sibling):
                 root = sibling
                 break
+    # Nothing unpacked yet. On a first run that is the normal state: the
+    # player has put their Xbox Live download in this folder and that is all.
+    # Unpack it for them rather than sending them off to find a tool.
+    if root is None:
+        here = (Path(sys.executable).parent if getattr(sys, "frozen", False)
+                else Path(__file__).resolve().parents[2])
+        container = modkit.find_container(here)
+        game_exe = here / "nbajam_ofe.exe"
+        if container and game_exe.is_file():
+            if first_run(here, container, game_exe):
+                root = here
+
     if root is None:
         picker = tk.Tk()
         picker.withdraw()
         messagebox.showinfo(
-            TITLE, "Point me at the game folder - the one with "
-                   "nbajam_ofe.exe in it.")
+            TITLE,
+            "I could not find the game.\n\n"
+            "Put your copy of NBA JAM: On Fire Edition in this folder - the "
+            "one file from your console's drive, about 850 MB, with no file "
+            "extension - and run this again.\n\n"
+            "Or point me at a folder where the game is already unpacked.")
         picked = filedialog.askdirectory(title="Where is the game?")
         picker.destroy()
         if not picked or not modkit.is_game_folder(picked):
