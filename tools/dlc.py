@@ -217,18 +217,18 @@ def cmd_import(args):
             repacked += 1
         copied += 1
 
-    # EA's 2012 roster update sits beside the data folder rather than in it,
-    # so the loop above never sees it, and the mods that bundle it carry the
-    # PlayStation 3 copy this build cannot open. Its contents are folded into
-    # the archives the game already reads instead. See tools/roster_update.py.
-    update = src / "rend_roster_update_big.ast"
+    # EA's last roster update sits beside the data folder rather than in it,
+    # so the loop above never saw it - and every published mod bundles one,
+    # because every published mod's rosters name the players in it. It is
+    # converted and kept beside the data, where the game looks for it by
+    # name. See tools/roster_update.py.
+    update = src / roster_update.NAME
     players = 0
     if update.is_file():
         try:
-            players = roster_update.merge(str(update), str(dest / "data"),
-                                          quiet=True)
+            players = roster_update.install(str(update), str(dest), quiet=True)
         except Exception as exc:                    # noqa: BLE001
-            print("  ! the bundled roster update would not go in ({})".format(exc))
+            print("  ! the bundled roster update would not convert ({})".format(exc))
 
     manifest = {
         "schema": SCHEMA,
@@ -251,8 +251,8 @@ def cmd_import(args):
         print("  {} archive(s) had their textures converted to this build's "
               "format".format(repacked))
     if players:
-        print("  {} extra player picture(s) from the bundled roster update "
-              "folded in".format(players))
+        print("  the bundled roster update came too: {} texture(s) converted"
+              .format(players))
     bad = verify_assets.verify(str(dest / "data"), quiet=True)
     if bad:
         print("  ! {} texture(s) came out wrong and will not draw; the lines "
@@ -361,6 +361,13 @@ def cmd_instance(args):
         else:
             link_or_copy(p, target)
             base += 1
+    # The roster update sits beside the game's data rather than inside it,
+    # which is where the game looks for it. See tools/roster_update.py.
+    if mod_path:
+        update = mod_path / roster_update.NAME
+        if update.is_file():
+            link_or_copy(update, out / roster_update.NAME)
+
     # Anything the mod brings that the base game does not have.
     for rel, p in overrides.items():
         target = out / rel

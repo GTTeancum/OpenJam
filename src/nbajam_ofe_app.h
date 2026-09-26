@@ -111,6 +111,22 @@ class NbajamOfeApp : public rex::ReXApp {
         std::filesystem::exists(home / "metadata", ec)) {
       paths.metadata_root = home / "metadata";
     }
+    // On the console this game is patched by a title update, and it looks
+    // for one: every data folder it opens, it asks `UPDATE:` for first, and
+    // falls back to the disc. Three hundred and fifty times a run, to a
+    // device this port never mounted. The roster that came with that update -
+    // the 2012 rookies - is what the published mods are built on top of, so
+    // without it their teams name players the game has never heard of.
+    //
+    // An `update` folder beside the game is mounted as that device, so the
+    // game finds the update through its own path rather than anything of
+    // ours. Nothing there means nothing mounted, exactly as before.
+    if (paths.update_data_root.empty() && !paths.game_data_root.empty() &&
+        std::filesystem::exists(paths.game_data_root / "update", ec)) {
+      paths.update_data_root = paths.game_data_root / "update";
+      REXLOG_INFO("update: patching the game from {}",
+                  paths.update_data_root.string());
+    }
     paths.user_data_root =
         NbaSaveRootFor(paths.user_data_root, paths.game_data_root);
     // And this is the only place that knows which root won, which is what a
