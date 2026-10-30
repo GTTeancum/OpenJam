@@ -90,7 +90,7 @@ correctly on the same driver, so the fault is in the runtime's Vulkan backend
 or in how it meets llvmpipe, and a real GPU is needed to tell which. Until
 then, Linux and the Steam Deck are served by the Windows build through Proton.
 
-When capturing a WSLg window with `xwd`, convert with `_work/xwd2png.py` or
+When capturing a WSLg window with `xwd`, convert with `tools/xwd2png.py` or
 similar rather than `xwdtopnm`: the window gets a DirectColor visual, and
 `xwdtopnm` swaps red and blue for it, which looks exactly like a rendering
 fault.
