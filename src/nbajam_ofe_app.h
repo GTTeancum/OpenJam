@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <system_error>
 
+#include "config_repair.h"
 #include "guest_base.h"
 #include "mod_picker.h"
 #include "null_page.h"
@@ -90,8 +91,21 @@ class NbajamOfeApp : public rex::ReXApp {
     // moment later, so a plain double-click filled the screen and then
     // dropped into a window - which is both startling and not what this port
     // is for.
-    if (!rex::cvar::HasNonDefaultValue("fullscreen")) {
-      REXCVAR_SET(fullscreen, false);
+    //
+    // Two things make "asked for" harder than it looks (issue #2). An explicit
+    // `--fullscreen` or `fullscreen = true` equals the runtime's default, so
+    // comparing against the default cannot see it; where the value came from
+    // can. And the settings overlay (F4) saves only values that differ from
+    // the default, so with the runtime's default left at true, choosing
+    // fullscreen there and saving wrote nothing and the next launch was
+    // windowed again. Making windowed this port's default fixes both: a saved
+    // fullscreen is now a difference, and gets written. Nothing else reads
+    // the registry yet, so changing the entry in place is safe here.
+    if (const auto* flag = rex::cvar::GetFlagInfo("fullscreen")) {
+      if (flag->source == rex::cvar::Source::kDefault) {
+        REXCVAR_SET(fullscreen, false);
+      }
+      const_cast<rex::cvar::FlagEntry*>(flag)->default_value = "false";
     }
     // Stated at boot because the game does not query the mask until well into
     // the front end, so the log is the only way to confirm it without playing.
@@ -105,6 +119,10 @@ class NbajamOfeApp : public rex::ReXApp {
   // runs after both the defaults and the command line have been read and
   // before anything opens a save, so it covers however the game was started.
   void OnConfigurePaths(rex::PathConfig& paths) override {
+    // The settings file is read straight after this returns, and a copy the
+    // runtime saved itself may not be readable as it stands; see
+    // src/config_repair.cpp.
+    NbaRepairSavedConfig(paths.config_path);
     // The executable sits in the game folder, so with nothing said it plays
     // what is beside it. That is what makes a staged game a folder rather
     // than a command line, and what lets a mod be reached by pointing the

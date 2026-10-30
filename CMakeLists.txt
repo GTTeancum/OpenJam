@@ -38,6 +38,7 @@ set(NBAJAMOFE_SOURCES
     src/mod_picker.cpp
     src/host_pad.cpp
     src/window_title.cpp
+    src/config_repair.cpp
 )
 
 if(WIN32)
