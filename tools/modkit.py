@@ -48,13 +48,15 @@ NOT_THE_GAME = {"mods", "saves", "logs", "ui", "metadata", "mods.list",
                 "saves.path", "crash_stack.txt", "hooks.txt"}
 NOT_THE_GAME_SUFFIX = (".exe", ".dll", ".log", ".pdb")
 
-# PS3-only files, and the two archives that are platform code rather than
-# data. Same list dlc.py imports with, and for the same reasons.
+# PS3-only files, the archive that is platform code rather than data, and all
+# of the audio, which is in the PS3's sound format and would leave the
+# announcer silent. Same list dlc.py imports with, and for the same reasons.
 SKIP_SUFFIXES = (".gtf",)
 SKIP_PATTERNS = (
     re.compile(r"^xenon/saveload/"),
     re.compile(r"^xenon/genbigs/rend_misc_big\.ast$"),
-    re.compile(r"^xenon/bigs/audio/aemsdata\.ast$"),
+    re.compile(r"^xenon/bigs/audio/"),
+    re.compile(r"^xenon/audio/"),
 )
 
 SAVE_DIR = "saves"

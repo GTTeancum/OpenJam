@@ -107,13 +107,23 @@ SCHEMA = 1
 #                       do not share a sound format; applying it faults as a
 #                       match loads.
 #
+# The rest of the audio is withheld for the same reason, more quietly: the
+# commentary, crowd and music banks are EA Layer 3 on the PS3 and XMA on the
+# 360, and the PS3 speech configs say so ("ealayer3_int") and point at
+# data/ps3. Applied, nothing faults - the announcer simply never speaks (issue
+# #7). No published mod changes any audio (johnz1's release notes for the
+# 1990s, 2020s and Legends editions all say so; new players borrow a stock
+# player's speech id from the roster), so the base game's own audio is the
+# right audio for every mod.
+#
 # Everything else transfers, the textures after conversion (see
 # tools/ast_repack.py) and the rest untouched.
 SKIP_SUFFIXES = (".gtf",)
 SKIP_PATTERNS = (
     re.compile(r"^xenon/saveload/"),
     re.compile(r"^xenon/genbigs/rend_misc_big\.ast$"),
-    re.compile(r"^xenon/bigs/audio/aemsdata\.ast$"),
+    re.compile(r"^xenon/bigs/audio/"),
+    re.compile(r"^xenon/audio/"),
 )
 
 
