@@ -27,6 +27,8 @@
 
 #include <dbghelp.h>
 
+#include "guest_base.h"
+
 #include <atomic>
 #include <cstdio>
 #include <mutex>
@@ -45,9 +47,12 @@ std::atomic<int> g_reports{0};
 constexpr int kMaxReports = 12;
 constexpr int kMaxFrames = 48;
 
-// The runtime maps the guest arena at a fixed host base; the log line prints
-// both, e.g. "guest 0x68EC0000 (host 0x0000000168EC0000)".
-constexpr uintptr_t kGuestVirtualBase = 0x0000000100000000ull;
+// Set while this thread is writing a report. A vectored handler hears about
+// every fault before any `__except` does, its own guarded reads included, so
+// a read that fails in here comes straight back in. Taking g_mutex a second
+// time on the same thread throws, and that throw - not the fault it was
+// reporting - is what used to take the game down.
+thread_local bool t_reporting = false;
 
 FILE* OpenReport() {
   char path[MAX_PATH]{};
@@ -99,11 +104,15 @@ void DescribeFrame(FILE* f, int index, void* addr) {
   }
 }
 
-// Guest memory is a flat arena at a fixed host base, so a guest address is just
+// Guest memory is a flat arena at one host base, so a guest address is just
 // an offset into it. Reads are guarded: the whole point is that some of this
 // memory is not mapped.
 bool ReadGuest(uint32_t guest, void* out, size_t len) {
-  const void* src = reinterpret_cast<const void*>(kGuestVirtualBase + guest);
+  const uintptr_t base = NbaGuestBase();
+  if (!base) {
+    return false;
+  }
+  const void* src = reinterpret_cast<const void*>(base + guest);
   __try {
     memcpy(out, src, len);
     return true;
@@ -179,8 +188,11 @@ void DumpPageState(FILE* f, uintptr_t host_addr) {
 // the file's text is nowhere in guest memory, the game never read it.
 void ScanGuestFor(FILE* f, const char* needle) {
   const size_t len = strlen(needle);
-  const uintptr_t lo = kGuestVirtualBase;
-  const uintptr_t hi = kGuestVirtualBase + 0x100000000ull;
+  const uintptr_t lo = NbaGuestBase();
+  const uintptr_t hi = lo + 0x100000000ull;
+  if (!lo) {
+    return;   // no guest memory yet, so nothing to search
+  }
 
   fprintf(f, "\ncommitted guest regions, and search for \"%s\":\n", needle);
   int regions = 0, hits = 0;
@@ -242,9 +254,10 @@ void DumpHostRegisters(FILE* f, const CONTEXT* c) {
     fprintf(f, "  %s = 0x%016llX", r.name, static_cast<unsigned long long>(r.value));
     // Flag anything that looks like a pointer into the guest arena: one of
     // these is the recompiled function's `base`, and PPCContext sits near it.
-    if (r.value >= kGuestVirtualBase && r.value < kGuestVirtualBase + 0x100000000ull) {
+    const uintptr_t base = NbaGuestBase();
+    if (base && r.value >= base && r.value < base + 0x100000000ull) {
       fprintf(f, "   -> guest 0x%08X",
-              static_cast<unsigned>(r.value - kGuestVirtualBase));
+              static_cast<unsigned>(r.value - base));
     }
     fprintf(f, "\n");
   }
@@ -259,10 +272,18 @@ LONG CALLBACK OnException(EXCEPTION_POINTERS* info) {
     return EXCEPTION_CONTINUE_SEARCH;
   }
 
+  if (t_reporting) {
+    return EXCEPTION_CONTINUE_SEARCH;   // one of our own reads; its __except has it
+  }
+
   const uintptr_t fault = static_cast<uintptr_t>(rec->ExceptionInformation[1]);
   const bool is_write = rec->ExceptionInformation[0] != 0;
 
   {
+    t_reporting = true;
+    struct Done {
+      ~Done() { t_reporting = false; }
+    } done;
     std::lock_guard<std::mutex> lock(g_mutex);
     if (g_reports.load() >= kMaxReports) {
       return EXCEPTION_CONTINUE_SEARCH;
@@ -281,8 +302,9 @@ LONG CALLBACK OnException(EXCEPTION_POINTERS* info) {
 
     fprintf(f, "\n=== access violation: %s of host 0x%016llX", is_write ? "write" : "read",
             static_cast<unsigned long long>(fault));
-    if (fault >= kGuestVirtualBase && fault < kGuestVirtualBase + 0x100000000ull) {
-      fprintf(f, "  (guest 0x%08X)", static_cast<unsigned>(fault - kGuestVirtualBase));
+    const uintptr_t base = NbaGuestBase();
+    if (base && fault >= base && fault < base + 0x100000000ull) {
+      fprintf(f, "  (guest 0x%08X)", static_cast<unsigned>(fault - base));
     }
     fprintf(f, " ===\n");
     fprintf(f, "thread %lu, faulting pc 0x%p\n", GetCurrentThreadId(), rec->ExceptionAddress);

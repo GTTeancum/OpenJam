@@ -28,6 +28,7 @@
 // where a null came from rather than surviving it.
 
 #include "null_page.h"
+#include "guest_base.h"
 
 #include <windows.h>
 
@@ -36,8 +37,6 @@
 #include <rex/logging.h>
 
 namespace {
-
-constexpr uintptr_t kGuestVirtualBase = 0x0000000100000000ull;
 
 // Generous: the reads that have killed this port landed between 0x18 and
 // 0x2AC, and a structure with a large field offset could reach further.
@@ -59,7 +58,7 @@ void NbaMapNullPage() {
                 "crash");
     return;
   }
-  void* at = reinterpret_cast<void*>(kGuestVirtualBase);
+  void* at = reinterpret_cast<void*>(NbaGuestBase());
   MEMORY_BASIC_INFORMATION mbi{};
   const bool known = VirtualQuery(at, &mbi, sizeof(mbi)) != 0;
   REXLOG_INFO("null page: guest zero is state {:X} protect {:X} over {} KB",

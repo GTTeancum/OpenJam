@@ -25,6 +25,8 @@
 
 #include <rex/ppc/context.h>
 
+#include "guest_base.h"
+
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -307,15 +309,13 @@ inline void vcfpsxws(PPCVRegister& d, const PPCVRegister& a, int uimm) {
 // Memory
 //---------------------------------------------------------------------------
 
-constexpr uintptr_t kGuestBase = 0x0000000100000000ull;
-
 inline void lvx(PPCVRegister& d, uint32_t ea) {
-  const uint8_t* p = reinterpret_cast<const uint8_t*>(kGuestBase + (ea & ~0xFu));
+  const uint8_t* p = reinterpret_cast<const uint8_t*>(NbaGuestBase() + (ea & ~0xFu));
   for (int i = 0; i < 16; ++i) sb(d, i, p[i]);
 }
 
 inline void stvx(const PPCVRegister& s, uint32_t ea) {
-  uint8_t* p = reinterpret_cast<uint8_t*>(kGuestBase + (ea & ~0xFu));
+  uint8_t* p = reinterpret_cast<uint8_t*>(NbaGuestBase() + (ea & ~0xFu));
   for (int i = 0; i < 16; ++i) p[i] = gb(s, i);
 }
 
@@ -323,7 +323,7 @@ inline void stvx(const PPCVRegister& s, uint32_t ea) {
 // zeros after.
 inline void lvlx(PPCVRegister& d, uint32_t ea) {
   const unsigned eb = ea & 0xF;
-  const uint8_t* p = reinterpret_cast<const uint8_t*>(kGuestBase + (ea & ~0xFu));
+  const uint8_t* p = reinterpret_cast<const uint8_t*>(NbaGuestBase() + (ea & ~0xFu));
   for (int i = 0; i < 16; ++i) sb(d, i, unsigned(i) < 16 - eb ? p[eb + i] : 0);
 }
 
@@ -331,7 +331,7 @@ inline void lvlx(PPCVRegister& d, uint32_t ea) {
 // justified, zeros before. eb == 0 loads nothing.
 inline void lvrx(PPCVRegister& d, uint32_t ea) {
   const unsigned eb = ea & 0xF;
-  const uint8_t* p = reinterpret_cast<const uint8_t*>(kGuestBase + (ea & ~0xFu));
+  const uint8_t* p = reinterpret_cast<const uint8_t*>(NbaGuestBase() + (ea & ~0xFu));
   for (int i = 0; i < 16; ++i) sb(d, i, unsigned(i) >= 16 - eb ? p[i - (16 - eb)] : 0);
 }
 
@@ -339,7 +339,7 @@ inline void lvrx(PPCVRegister& d, uint32_t ea) {
 inline void stvewx(const PPCVRegister& s, uint32_t ea) {
   const uint32_t addr = ea & ~3u;
   const int k = int((addr >> 2) & 3);
-  uint8_t* p = reinterpret_cast<uint8_t*>(kGuestBase + addr);
+  uint8_t* p = reinterpret_cast<uint8_t*>(NbaGuestBase() + addr);
   for (int i = 0; i < 4; ++i) p[i] = gb(s, k * 4 + i);
 }
 

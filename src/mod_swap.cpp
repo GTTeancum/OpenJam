@@ -190,8 +190,9 @@ void Relaunch(const NbaMod& next) {
 
   // Tell the replacement who to wait for. Both processes exist for a moment,
   // and the guest's memory has one address it wants; the second one to ask
-  // for it is given somewhere else and every hook in the port then reads the
-  // wrong place. Inherited through the environment, so it costs no flag.
+  // for it is given somewhere else. The port follows it there now (see
+  // src/guest_base.h), but the usual address is still the one every test was
+  // run at. Inherited through the environment, so it costs no flag.
   const std::wstring me = std::to_wstring(GetCurrentProcessId());
   SetEnvironmentVariableW(kFromPid, me.c_str());
 

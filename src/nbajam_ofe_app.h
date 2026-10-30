@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <system_error>
 
+#include "guest_base.h"
 #include "mod_picker.h"
 #include "null_page.h"
 #include "unpack_container.h"
@@ -143,6 +144,9 @@ class NbajamOfeApp : public rex::ReXApp {
 
   // The window is named after the executable unless something says otherwise.
   void OnPostSetup() override {
+    // Where the guest's memory went is the first thing worth knowing about a
+    // launch that goes wrong; see src/guest_base.h.
+    NbaReportGuestBase();
     // The guest's memory exists by now, and address zero is the one part of
     // it the console left unmapped. See src/null_page.cpp for why this port
     // maps it.

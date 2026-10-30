@@ -41,6 +41,8 @@
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <exception>
 #include <string>
 #include <thread>
 #include <vector>
@@ -101,6 +103,37 @@ std::string NameOf(HANDLE proc, DWORD64 addr) {
   return std::string(sym->Name);
 }
 
+// The stack from a captured context, innermost first. Walking it scribbles on
+// the context, so it takes a copy.
+std::vector<std::string> WalkFrom(HANDLE th, CONTEXT ctx) {
+  std::vector<std::string> out;
+  STACKFRAME64 frame{};
+  frame.AddrPC.Offset = ctx.Rip;
+  frame.AddrPC.Mode = AddrModeFlat;
+  frame.AddrFrame.Offset = ctx.Rbp;
+  frame.AddrFrame.Mode = AddrModeFlat;
+  frame.AddrStack.Offset = ctx.Rsp;
+  frame.AddrStack.Mode = AddrModeFlat;
+  const HANDLE proc = GetCurrentProcess();
+  for (int i = 0; i < kMaxFrames; ++i) {
+    if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, proc, th, &frame, &ctx,
+                     nullptr, SymFunctionTableAccess64, SymGetModuleBase64,
+                     nullptr)) {
+      break;
+    }
+    if (!frame.AddrPC.Offset) break;
+    std::string name = NameOf(proc, frame.AddrPC.Offset);
+    if (name.empty()) {
+      char hex[32];
+      std::snprintf(hex, sizeof(hex), "%016llX",
+                    static_cast<unsigned long long>(frame.AddrPC.Offset));
+      name = hex;
+    }
+    out.push_back(name);
+  }
+  return out;
+}
+
 // One thread's stack, innermost first. The thread is stopped while this
 // reads it and started again before returning.
 std::vector<std::string> StackOf(DWORD tid) {
@@ -115,34 +148,57 @@ std::vector<std::string> StackOf(DWORD tid) {
   CONTEXT ctx{};
   ctx.ContextFlags = CONTEXT_FULL;
   if (GetThreadContext(th, &ctx)) {
-    STACKFRAME64 frame{};
-    frame.AddrPC.Offset = ctx.Rip;
-    frame.AddrPC.Mode = AddrModeFlat;
-    frame.AddrFrame.Offset = ctx.Rbp;
-    frame.AddrFrame.Mode = AddrModeFlat;
-    frame.AddrStack.Offset = ctx.Rsp;
-    frame.AddrStack.Mode = AddrModeFlat;
-    const HANDLE proc = GetCurrentProcess();
-    for (int i = 0; i < kMaxFrames; ++i) {
-      if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, proc, th, &frame, &ctx,
-                       nullptr, SymFunctionTableAccess64, SymGetModuleBase64,
-                       nullptr)) {
-        break;
-      }
-      if (!frame.AddrPC.Offset) break;
-      std::string name = NameOf(proc, frame.AddrPC.Offset);
-      if (name.empty()) {
-        char hex[32];
-        std::snprintf(hex, sizeof(hex), "%016llX",
-                      static_cast<unsigned long long>(frame.AddrPC.Offset));
-        name = hex;
-      }
-      out.push_back(name);
-    }
+    out = WalkFrom(th, ctx);
   }
   ResumeThread(th);
   CloseHandle(th);
   return out;
+}
+
+// What a C++ exception was, when that is what took the game down. E06D7363 is
+// the code every `throw` raises, and on its own it says nothing; the thrown
+// object's type and, for the standard ones, its message are what a report
+// needs. The layout is the MSVC ABI's, which clang follows on Windows: the
+// record carries the object, the throw description and the image base the
+// description's offsets are relative to.
+std::string ThrownThing(const EXCEPTION_RECORD* rec) {
+  constexpr DWORD kCppException = 0xE06D7363;
+  constexpr ULONG_PTR kMagic = 0x19930520;
+  if (!rec || rec->ExceptionCode != kCppException ||
+      rec->NumberParameters < 4 || rec->ExceptionInformation[0] != kMagic) {
+    return {};
+  }
+  const auto object = rec->ExceptionInformation[1];
+  const auto throw_info = rec->ExceptionInformation[2];
+  const auto base = rec->ExceptionInformation[3];
+  if (!object || !throw_info || !base) return {};
+  std::string types;
+  bool is_std = false;
+  __try {
+    // ThrowInfo: attributes, unwind, forward compat, catchable type array.
+    const int32_t array_rva = reinterpret_cast<const int32_t*>(throw_info)[3];
+    const auto* array = reinterpret_cast<const int32_t*>(base + array_rva);
+    const int32_t count = array[0];
+    for (int32_t i = 0; i < count && i < 8; ++i) {
+      // CatchableType: properties, then the type descriptor.
+      const auto* type = reinterpret_cast<const int32_t*>(base + array[1 + i]);
+      const auto* desc = reinterpret_cast<const char*>(base + type[1]);
+      // TypeDescriptor: vtable, spare, then the decorated name.
+      const char* name = desc + 2 * sizeof(void*);
+      if (!types.empty()) types += " < ";
+      types += name;
+      if (std::strcmp(name, ".?AVexception@std@@") == 0) is_std = true;
+    }
+    if (is_std) {
+      const auto* e = reinterpret_cast<const std::exception*>(object);
+      types += " - \"";
+      types += e->what();
+      types += "\"";
+    }
+  } __except (EXCEPTION_EXECUTE_HANDLER) {
+    types += " (could not read the rest)";
+  }
+  return types;
 }
 
 // Is this a thread running game code, rather than one of the port's own?
@@ -335,6 +391,19 @@ LONG CALLBACK LastWord(EXCEPTION_POINTERS* info) {
   }
   REXLOG_ERROR("the game has fallen over ({:08X}) - it is finished, but the "
                "window is not. Offering to start it again.", code);
+  // Said before anything else is attempted: if one of these reads goes wrong
+  // too, the line above is already in the log.
+  const std::string thrown = ThrownThing(info ? info->ExceptionRecord : nullptr);
+  if (!thrown.empty()) {
+    REXLOG_ERROR("  thrown: {}", thrown);
+  }
+  if (info && info->ContextRecord) {
+    REXLOG_ERROR("  where (innermost first):");
+    for (const std::string& name :
+         WalkFrom(GetCurrentThread(), *info->ContextRecord)) {
+      REXLOG_ERROR("      {}", name);
+    }
+  }
   g_fell_over.store(true, std::memory_order_relaxed);
   g_stuck.store(true, std::memory_order_relaxed);
   for (;;) {

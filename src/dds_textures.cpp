@@ -70,6 +70,7 @@
 // problem than one that does not appear.
 
 #include "dds_textures.h"
+#include "guest_base.h"
 
 #include <windows.h>
 
@@ -91,8 +92,6 @@
 
 namespace {
 
-constexpr uintptr_t kGuestVirtualBase = 0x0000000100000000ull;
-
 // The GPU requires each row of blocks in a linear texture to begin on a
 // 256-byte boundary.
 constexpr uint32_t kLinearRowAlignment = 256;
@@ -103,7 +102,7 @@ constexpr uint32_t kFormatDXT2_3 = 19;
 constexpr uint32_t kFormatDXT4_5 = 20;
 
 uint8_t* GuestPtr(uint32_t addr) {
-  return reinterpret_cast<uint8_t*>(kGuestVirtualBase + addr);
+  return reinterpret_cast<uint8_t*>(NbaGuestBase() + addr);
 }
 
 uint32_t LoadBE16(const uint8_t* p) {

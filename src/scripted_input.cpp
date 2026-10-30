@@ -37,8 +37,14 @@
 //
 // Buttons: A B X Y START BACK LB RB LT RT UP DOWN LEFT RIGHT WAIT.
 // Join them with '+' to hold several at once, as in LT+Y.
+//
+// The title screen does not listen for START until roughly fifteen seconds
+// after the first poll, and a press before then is simply lost. Press it a
+// few times rather than once: "8000:START;3000:START;3000:START;3000:START;
+// 3000:START;3000:START" and then A presses reliably reach a match.
 
 #include "scripted_input.h"
+#include "guest_base.h"
 
 #include "mod_picker.h"
 #include "window_title.h"
@@ -55,8 +61,6 @@
 #include <rex/logging.h>
 
 namespace {
-
-constexpr uintptr_t kGuestVirtualBase = 0x0000000100000000ull;
 
 // The XINPUT_STATE the game passes sits at r1+208, so wButtons - the first
 // field of the gamepad, after the packet number - is at r1+212. The game
@@ -223,7 +227,7 @@ void NbaScriptedInput(PPCRegister& r1, PPCRegister& r26, PPCRegister& r3) {
     static uint32_t which = 0xFFFFFFFF;
     const bool present = r3.u32 == 0;
     uint8_t* st =
-        reinterpret_cast<uint8_t*>(kGuestVirtualBase + r1.u32 + kStateOffset);
+        reinterpret_cast<uint8_t*>(NbaGuestBase() + r1.u32 + kStateOffset);
     Witness(r26.u32, r3.u32, present ? st : nullptr);
     if (present && which == 0xFFFFFFFF) {
       which = r26.u32;
@@ -239,7 +243,7 @@ void NbaScriptedInput(PPCRegister& r1, PPCRegister& r26, PPCRegister& r3) {
   static int traced = 0;
   if (traced < 6) {
     ++traced;
-    const uint8_t* q = reinterpret_cast<const uint8_t*>(kGuestVirtualBase + r1.u32 + kButtonsOffset);
+    const uint8_t* q = reinterpret_cast<const uint8_t*>(NbaGuestBase() + r1.u32 + kButtonsOffset);
     REXLOG_INFO("input script: poll pad {} status 0x{:X} r1 0x{:08X} buttons 0x{:04X}",
                 r26.u32, r3.u32, r1.u32, (uint16_t(q[0]) << 8) | q[1]);
   }
@@ -291,7 +295,7 @@ void NbaScriptedInput(PPCRegister& r1, PPCRegister& r26, PPCRegister& r3) {
     ++packet;
   }
 
-  uint8_t* st = reinterpret_cast<uint8_t*>(kGuestVirtualBase + r1.u32 + kStateOffset);
+  uint8_t* st = reinterpret_cast<uint8_t*>(NbaGuestBase() + r1.u32 + kStateOffset);
   st[0] = uint8_t(packet >> 24);
   st[1] = uint8_t(packet >> 16);
   st[2] = uint8_t(packet >> 8);

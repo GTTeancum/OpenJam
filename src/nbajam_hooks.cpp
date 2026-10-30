@@ -10,6 +10,7 @@
 // reliable, which is the right trade for a few dozen diagnostic lines.
 
 #include "nbajam_hooks.h"
+#include "guest_base.h"
 
 #include <windows.h>
 
@@ -28,8 +29,18 @@ std::mutex g_mutex;
 int g_events = 0;
 constexpr int kMaxEvents = 40;
 
-// The runtime maps the guest arena at a fixed host base.
-constexpr uintptr_t kGuestVirtualBase = 0x0000000100000000ull;
+// The file-open trace below was for finding out why memory.cfg never loaded,
+// and that question is answered. It runs on the first forty file opens of
+// every launch otherwise, walking the stack each time, so it is off unless
+// NBAJAM_FILE_TRACE=1 asks for it.
+bool FileTraceWanted() {
+  static const bool on = [] {
+    char buf[8]{};
+    DWORD n = GetEnvironmentVariableA("NBAJAM_FILE_TRACE", buf, sizeof(buf));
+    return n > 0 && n < sizeof(buf) && buf[0] != '0';
+  }();
+  return on;
+}
 
 const char* ReportPath() {
   static char path[MAX_PATH]{};
@@ -59,7 +70,7 @@ void Emit(const char* fmt, ...) {
 
 bool ReadGuest(uint32_t guest, void* out, size_t len) {
   __try {
-    memcpy(out, reinterpret_cast<const void*>(kGuestVirtualBase + guest), len);
+    memcpy(out, reinterpret_cast<const void*>(NbaGuestBase() + guest), len);
     return true;
   } __except (EXCEPTION_EXECUTE_HANDLER) {
     return false;
@@ -69,7 +80,7 @@ bool ReadGuest(uint32_t guest, void* out, size_t len) {
 // A guest pointer can look plausible and still be backed by nothing.
 const char* Backing(uint32_t guest) {
   MEMORY_BASIC_INFORMATION mbi{};
-  if (!VirtualQuery(reinterpret_cast<LPCVOID>(kGuestVirtualBase + guest), &mbi, sizeof(mbi))) {
+  if (!VirtualQuery(reinterpret_cast<LPCVOID>(NbaGuestBase() + guest), &mbi, sizeof(mbi))) {
     return "query-failed";
   }
   if (mbi.State == MEM_COMMIT) {
@@ -144,6 +155,9 @@ void NbaTraceFileReadEntry(PPCRegister& r3, PPCRegister& r4, PPCRegister& r5,
 // goes through. The game reaches them through the function table rather than a
 // direct `bl`, so mid-ASM hooks on the recompiled call sites never fired.
 void NbaTraceIndirect(uint32_t target, PPCContext& ctx) {
+  if (!FileTraceWanted()) {
+    return;
+  }
   std::lock_guard<std::mutex> lock(g_mutex);
   if (++g_events > kMaxEvents) {
     return;

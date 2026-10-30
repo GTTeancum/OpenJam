@@ -40,6 +40,7 @@
 // place, the fault is upstream in sub_824E6310 and this function is clean.
 
 #include "vp6_hooks.h"
+#include "guest_base.h"
 
 #include <windows.h>
 
@@ -55,11 +56,9 @@
 
 namespace {
 
-constexpr uintptr_t kGuestVirtualBase = 0x0000000100000000ull;
-
 template <typename T>
 T* GuestPtr(uint32_t addr) {
-  return reinterpret_cast<T*>(kGuestVirtualBase + addr);
+  return reinterpret_cast<T*>(NbaGuestBase() + addr);
 }
 
 int16_t LoadBE16(const uint8_t* p) {

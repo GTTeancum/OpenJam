@@ -19,6 +19,7 @@
 // back, which is what to do when working out why something is missing.
 
 #include "asset_fallback.h"
+#include "guest_base.h"
 
 #include <windows.h>
 
@@ -27,8 +28,6 @@
 #include <rex/logging.h>
 
 namespace {
-
-constexpr uintptr_t kGuestVirtualBase = 0x0000000100000000ull;
 
 bool Enabled() {
   static const bool on = [] {
@@ -44,7 +43,7 @@ bool Enabled() {
 bool Readable(uint32_t addr) {
   if (addr < 0x1000 || addr >= 0xC0000000) return false;
   MEMORY_BASIC_INFORMATION mbi{};
-  const void* p = reinterpret_cast<const void*>(kGuestVirtualBase + addr);
+  const void* p = reinterpret_cast<const void*>(NbaGuestBase() + addr);
   if (!VirtualQuery(p, &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT) {
     return false;
   }
@@ -60,7 +59,7 @@ bool Alive(uint32_t addr) {
   if (!Readable(addr)) return false;
   // Every one of these carries a pointer in its first word; a zero there
   // means whatever was here has gone.
-  const uint8_t* q = reinterpret_cast<const uint8_t*>(kGuestVirtualBase + addr);
+  const uint8_t* q = reinterpret_cast<const uint8_t*>(NbaGuestBase() + addr);
   const uint32_t first = (uint32_t(q[0]) << 24) | (uint32_t(q[1]) << 16) |
                          (uint32_t(q[2]) << 8) | uint32_t(q[3]);
   return first != 0;
@@ -73,7 +72,7 @@ bool Alive(uint32_t addr) {
 uint32_t KeyAt(uint32_t handle, int at) {
   if (!Readable(handle + at)) return 0;
   const uint8_t* q = reinterpret_cast<const uint8_t*>(
-      kGuestVirtualBase + handle + at);
+      NbaGuestBase() + handle + at);
   return (uint32_t(q[0]) << 24) | (uint32_t(q[1]) << 16) |
          (uint32_t(q[2]) << 8) | uint32_t(q[3]);
 }

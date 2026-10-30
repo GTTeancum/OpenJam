@@ -48,6 +48,7 @@
 // screen under test makes two runs comparable.
 
 #include "apt_trace.h"
+#include "guest_base.h"
 
 #include <windows.h>
 #include <dbghelp.h>
@@ -96,10 +97,8 @@ uint32_t Budget() {
 // it contains rather than where it sits. A hash of its first bytes is stable,
 // and the same hash can be computed offline from a screen's payload, which is
 // what makes a trace line traceable back to a particular piece of a file.
-constexpr uintptr_t kGuestVirtualBase = 0x0000000100000000ull;
-
 uint64_t Fingerprint(uint32_t code, uint32_t len) {
-  const uint8_t* p = reinterpret_cast<const uint8_t*>(kGuestVirtualBase + code);
+  const uint8_t* p = reinterpret_cast<const uint8_t*>(NbaGuestBase() + code);
   const uint32_t n = (len == 0 || len > 64) ? 64 : len;
   uint64_t h = 0xCBF29CE484222325ull;
   for (uint32_t i = 0; i < n; ++i) {
@@ -166,7 +165,7 @@ bool Context() {
 bool Readable(uint32_t addr, uint32_t len) {
   if (addr < 0x1000 || addr >= 0xC0000000) return false;
   MEMORY_BASIC_INFORMATION mbi{};
-  const void* p = reinterpret_cast<const void*>(kGuestVirtualBase + addr);
+  const void* p = reinterpret_cast<const void*>(NbaGuestBase() + addr);
   if (!VirtualQuery(p, &mbi, sizeof(mbi))) return false;
   if (mbi.State != MEM_COMMIT) return false;
   const DWORD ok = PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ |
@@ -181,7 +180,7 @@ bool Readable(uint32_t addr, uint32_t len) {
 // once, to find out what the interpreter knows about the movie it is running.
 void Peek(const char* what, uint32_t addr) {
   if (!Readable(addr, 48)) return;
-  const uint8_t* p = reinterpret_cast<const uint8_t*>(kGuestVirtualBase + addr);
+  const uint8_t* p = reinterpret_cast<const uint8_t*>(NbaGuestBase() + addr);
   char hex[3 * 48 + 1]{};
   char txt[49]{};
   for (int i = 0; i < 48; ++i) {
@@ -194,7 +193,7 @@ void Peek(const char* what, uint32_t addr) {
     const uint32_t v = (uint32_t(p[i * 4]) << 24) | (uint32_t(p[i * 4 + 1]) << 16) |
                        (uint32_t(p[i * 4 + 2]) << 8) | uint32_t(p[i * 4 + 3]);
     if (!Readable(v, 48)) continue;
-    const char* q = reinterpret_cast<const char*>(kGuestVirtualBase + v);
+    const char* q = reinterpret_cast<const char*>(NbaGuestBase() + v);
     int n = 0;
     while (n < 40 && q[n] >= 32 && q[n] < 127) ++n;
     if (n >= 4) {
