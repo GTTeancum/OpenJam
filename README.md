@@ -44,6 +44,31 @@ johnz1's 1990s edition, in play:
 
 ![NBA JAM 1990s On Fire Edition](screenshots/mod_1990s_in_play.png)
 
+### Video settings
+
+Options > Settings has a Video tab beside Audio, Gameplay and Privileges:
+windowed or fullscreen, resolution, sharpness (the game drawn at two or three
+times its own resolution), picture shape and vsync. Resolution and sharpness
+take effect the next time the game starts; the rest at once. Everything is
+kept in `nbajam_ofe.toml` beside the game.
+
+### Steam Deck and Linux
+
+Use the Windows release through Proton. Add **NBA JAM Mod Manager.exe** to
+Steam as a non-Steam game, set it to run with Proton under Properties >
+Compatibility, and play from there; add `nbajam_ofe.exe` the same way to go
+straight into the game. Under Proton it starts fullscreen, and on a Steam Deck
+at 1280x800, the Deck's own screen, so the picture fills it.
+
+This is the tested route: the game has been played through a whole match
+under Wine with vkd3d-proton and DXVK, which is what Proton runs it with, and
+it draws correctly there. It has not yet been run on a Deck itself.
+
+A native Linux build exists and runs, but it is experimental: its menus draw
+correctly and its matches do not (unlit players, a dark upper arena, no score
+bar). It has only been tried on a software graphics driver, so whether that is
+the driver or the native build is not known yet. See BUILDING.md.
+
 ## What this repository contains
 
 The port project only — the configuration, hand-written source, and the tooling

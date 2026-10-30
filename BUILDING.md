@@ -57,6 +57,44 @@ Codegen emits about 5.7 million lines of C++ across 158 translation units
 machine has 16 threads and 28 GB, and the generated translation units are
 large. `-j 16` was never tried, so it may well be fine.
 
+### Linux (experimental)
+
+The same source builds natively for Linux. The port's own code reaches the
+host only through `src/host.h`, which has a Windows and a Linux side; the
+recompiled game needs nothing of the sort. It has been built and run in WSL
+(Ubuntu, clang 21) against the ReXGlue v0.10.0 `linux-amd64` SDK release
+unpacked to `_deps/rexglue-dist/linux-amd64`:
+
+```
+cmake --preset local-linux-relwithdebinfo
+cmake --build --preset local-linux-relwithdebinfo
+```
+
+`local-linux-relwithdebinfo` is a user preset that inherits `linux-base`,
+points `CMAKE_PREFIX_PATH` at that SDK and uses the system `clang`/`clang++`
+rather than the `clang-20` the shared preset names. The runtime's own
+libraries are not copied beside the executable yet, so a run needs
+`LD_LIBRARY_PATH=_deps/rexglue-dist/linux-amd64/lib`.
+
+What differs from Windows: mod swaps `exec` the process in place rather than
+starting a second one; the mod chooser reads the pad through SDL; the null
+page is opened with `mprotect`; the stall watchdog and the developer stack
+walks are Windows-only (`src/watchdog_posix.cpp` stands in).
+
+State: it boots, plays sound and draws the title and menus correctly at 60
+fps. In a match it does not - players' limbs unlit, the upper arena dark, the
+top score bar missing - with either `--render_target_path_vulkan` (`fsi` or
+`fbo`). That was on WSL's software Vulkan driver (llvmpipe), the only one
+available there; the Windows build under Wine with vkd3d-proton draws matches
+correctly on the same driver, so the fault is in the runtime's Vulkan backend
+or in how it meets llvmpipe, and a real GPU is needed to tell which. Until
+then, Linux and the Steam Deck are served by the Windows build through Proton.
+
+When capturing a WSLg window with `xwd`, convert with `_work/xwd2png.py` or
+similar rather than `xwdtopnm`: the window gets a DirectColor visual, and
+`xwdtopnm` swaps red and blue for it, which looks exactly like a rendering
+fault.
+
 ## Running
 
 The executable needs the game data mounted as the guest's `game:` / `d:` device.
