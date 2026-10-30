@@ -83,6 +83,7 @@ def main():
             "--hidden-import", "roster_update",
             "--hidden-import", "verify_assets",
             "--hidden-import", "dlc",
+            "--hidden-import", "commentary",
             "--paths", str(HERE),
             str(HERE / "modmanager.py")]
     if icon:

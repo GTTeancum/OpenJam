@@ -64,6 +64,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ast_repack
 import ast_textures
+import commentary
 import frontend
 import roster_update
 import verify_assets
@@ -422,6 +423,11 @@ def cmd_instance(args):
     rel_saves = getattr(args, "saves", None) or SAVE_DIR
     (out / rel_saves).resolve().mkdir(parents=True, exist_ok=True)
     (out / SAVE_MARKER).write_text(rel_saves + "\n", encoding="utf-8")
+
+    # A mod keeps the base game's commentary, so the names in it are the base
+    # game's players. See tools/commentary.py.
+    if args.mod != BASE:
+        commentary.strip_root(out)
 
     print("instance for '{}' ({})".format(manifest.get("name", args.mod), args.mod))
     print("  {} from the base game, {} replaced by the mod, {} added".format(

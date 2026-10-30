@@ -596,6 +596,7 @@ def main():
     # A folder set up by an older manager has no `ui` yet, and without it the
     # game's own screens and this window fall back to plain faces.
     modkit.stage_ui(root)
+    modkit.unname_commentary(root)
     window = Manager(root)
     if package:
         window.after(300, lambda: window.begin_install(package, name or "Mod"))

@@ -34,6 +34,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ast_repack
+import commentary
 import frontend
 import roster_update
 
@@ -286,6 +287,15 @@ UI_FILES = ("display.ttf", "text.ttf", "glyph_a.tex", "glyph_b.tex",
             "glyph_x.tex", "glyph_y.tex", "glyph_lt.tex", "glyph_dpad.tex")
 
 
+def unname_commentary(game, say=lambda _s: None):
+    """Every installed mod's commentary, without player names. A mod
+    installed by an older manager still has them; this is cheap and does
+    nothing to a root it has already been through."""
+    for m in installed(game):
+        if m["id"] != BASE:
+            commentary.strip_root(m["path"], say)
+
+
 def stage_ui(game, say=lambda _s: None):
     """Unpack the game's typefaces and button pictures, if any are missing."""
     game = Path(game)
@@ -433,6 +443,10 @@ def install(game, source, name=None, version="", author="", say=print,
         (game / SAVE_DIR / mod_id).mkdir(parents=True, exist_ok=True)
         (root / SAVE_MARKER).write_text(
             "../../{}/{}\n".format(SAVE_DIR, mod_id), encoding="utf-8")
+
+        # The announcer keeps the base game's voice but must not name the
+        # base game's players. See tools/commentary.py.
+        commentary.strip_root(root, say)
 
         say("Redrawing the menus")
         refresh_menus(game, say)
