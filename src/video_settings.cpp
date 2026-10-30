@@ -228,7 +228,7 @@ void NbaVideoReset() {
   std::lock_guard<std::mutex> guard(g_lock);
   Take();
   Set(kDisplay, NbaRunningUnderWine() ? 1 : 0);
-  Set(kWindow, 0);
+  Set(kWindow, NbaRunningOnSteamDeck() ? 1 : 0);   // 1280x800 on a Deck
   Set(kSharpness, 0);
   Set(kShape, 0);
   Set(kVsync, 0);
@@ -251,4 +251,13 @@ bool NbaRunningUnderWine() {
     return ntdll && GetProcAddress(ntdll, "wine_get_version") != nullptr;
   }();
   return wine;
+}
+
+bool NbaRunningOnSteamDeck() {
+  static const bool deck = [] {
+    char buf[4]{};
+    const DWORD n = GetEnvironmentVariableA("SteamDeck", buf, sizeof(buf));
+    return n > 0 && n < sizeof(buf) && buf[0] == '1';
+  }();
+  return deck;
 }

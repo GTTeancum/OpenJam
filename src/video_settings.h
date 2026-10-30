@@ -39,3 +39,7 @@ bool NbaVideoRestartPending();
 // Whether this is a Windows build running under Wine or Proton - which is
 // what a Steam Deck is.
 bool NbaRunningUnderWine();
+
+// Whether Steam says this is a Steam Deck (SteamDeck=1), whose screen is
+// 1280x800.
+bool NbaRunningOnSteamDeck();

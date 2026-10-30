@@ -134,6 +134,24 @@ class NbajamOfeApp : public rex::ReXApp {
     if (wine) {
       REXLOG_INFO("running under Wine or Proton: fullscreen unless asked");
     }
+    // A Steam Deck's screen is 1280x800, and the game draws itself at
+    // whatever shape it is given (see src/video_settings.cpp), so there it
+    // starts at that size and fills the screen rather than leaving bars over
+    // a 1280x720 picture. Steam says it is a Deck with SteamDeck=1. Set, not
+    // made the default as above: the runtime only takes a window size as the
+    // game's video mode when it differs from the default (xboxkrnl_video.cpp),
+    // so a default of 1280x800 would be ignored.
+    if (NbaRunningOnSteamDeck()) {
+      for (const auto& [name, value] :
+           {std::pair{"window_width", "1280"}, std::pair{"window_height", "800"}}) {
+        if (const auto* flag = rex::cvar::GetFlagInfo(name)) {
+          if (flag->source == rex::cvar::Source::kDefault) {
+            const_cast<rex::cvar::FlagEntry*>(flag)->setter(value);
+          }
+        }
+      }
+      REXLOG_INFO("Steam Deck: 1280x800 unless asked");
+    }
     // Stated at boot because the game does not query the mask until well into
     // the front end, so the log is the only way to confirm it without playing.
     REXLOG_INFO("license_mask = {} ({})", REXCVAR_GET(license_mask),
