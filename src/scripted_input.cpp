@@ -49,7 +49,7 @@
 #include "mod_picker.h"
 #include "window_title.h"
 
-#include <windows.h>
+#include "host.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -133,11 +133,7 @@ void Silence(uint8_t* st) {
   std::memset(st + 6, 0, 10);
 }
 
-std::string EnvStr(const char* name) {
-  char buf[1024]{};
-  DWORD n = GetEnvironmentVariableA(name, buf, sizeof(buf));
-  return (n > 0 && n < sizeof(buf)) ? std::string(buf, n) : std::string();
-}
+std::string EnvStr(const char* name) { return NbaEnv(name); }
 
 uint64_t EnvNum(const char* name, uint64_t fallback) {
   const std::string v = EnvStr(name);
@@ -252,7 +248,7 @@ void NbaScriptedInput(PPCRegister& r1, PPCRegister& r26, PPCRegister& r3) {
     return;   // pad 0 only; the others stay disconnected
   }
 
-  const uint64_t now = GetTickCount64();
+  const uint64_t now = NbaNowMs();
   if (g_first_tick == 0) {
     g_first_tick = now;
   }

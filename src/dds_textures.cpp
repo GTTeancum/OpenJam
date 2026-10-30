@@ -72,7 +72,7 @@
 #include "dds_textures.h"
 #include "guest_base.h"
 
-#include <windows.h>
+#include "host.h"
 
 #include <algorithm>
 #include <cctype>
@@ -192,11 +192,7 @@ bool g_any = false;
 // both of the names a replacement could use. That is how you find the key for
 // a texture you want to replace, and how you check the hook is firing at all.
 bool TraceEnabled() {
-  static const bool on = [] {
-    char buf[8]{};
-    DWORD n = GetEnvironmentVariableA("NBAJAM_DLC_TEXTURE_TRACE", buf, sizeof(buf));
-    return n > 0 && n < sizeof(buf) && buf[0] != '0';
-  }();
+  static const bool on = NbaEnvOn("NBAJAM_DLC_TEXTURE_TRACE");
   return on;
 }
 

@@ -41,9 +41,16 @@
 
 #include "mod_swap.h"
 
+#include "host.h"
+
+#ifdef _WIN32
 #include <windows.h>
 #include <shellapi.h>
+#else
+#include <unistd.h>
+#endif
 
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -53,17 +60,20 @@
 
 namespace {
 
+#ifdef _WIN32
 // The variable the replacement is told to wait on, and how long it is given.
 // Generous because it only ever costs anything when something has gone wrong:
 // normally the process being replaced is gone in a few milliseconds.
 const wchar_t* const kFromPid = L"NBAJAM_SWAP_FROM_PID";
 constexpr DWORD kWaitForExitMs = 10000;
+#endif
 
 std::mutex g_lock;
 bool g_swapping = false;
 bool g_relaunched = false;
 std::string g_root;
 
+#ifdef _WIN32
 std::string Narrow(const std::wstring& w) {
   const int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), int(w.size()),
                                     nullptr, 0, nullptr, nullptr);
@@ -73,22 +83,20 @@ std::string Narrow(const std::wstring& w) {
   return out;
 }
 
+#endif
+
 std::string CommandLineRoot() {
-  int argc = 0;
-  LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-  std::string out;
-  for (int i = 1; i < argc && out.empty(); ++i) {
-    std::wstring a(argv[i]);
-    const std::wstring key = L"--game_data_root=";
-    if (a.rfind(key, 0) != 0) continue;
-    std::wstring v = a.substr(key.size());
-    if (v.size() >= 2 && v.front() == L'"' && v.back() == L'"') {
+  const std::vector<std::string> argv = NbaCommandLine();
+  const std::string key = "--game_data_root=";
+  for (size_t i = 1; i < argv.size(); ++i) {
+    if (argv[i].rfind(key, 0) != 0) continue;
+    std::string v = argv[i].substr(key.size());
+    if (v.size() >= 2 && v.front() == '"' && v.back() == '"') {
       v = v.substr(1, v.size() - 2);
     }
-    out = Narrow(v);
+    return v;
   }
-  LocalFree(argv);
-  return out;
+  return {};
 }
 
 // Whichever root is actually being played. The resolved one first: a staged
@@ -106,7 +114,7 @@ std::string Trim(const std::string& s) {
 
 bool ReadList(const std::string& root, std::vector<NbaMod>* mods,
               std::string* active) {
-  std::ifstream in(root + "\\mods.list");
+  std::ifstream in(NbaPathFromUtf8(root) / "mods.list");
   if (!in) return false;
   std::string line;
   while (std::getline(in, line)) {
@@ -135,6 +143,7 @@ bool ReadList(const std::string& root, std::vector<NbaMod>* mods,
   return !mods->empty();
 }
 
+#ifdef _WIN32
 std::wstring Widen(const std::string& s) {
   const int n = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), int(s.size()),
                                     nullptr, 0);
@@ -224,6 +233,46 @@ void Relaunch(const NbaMod& next) {
   TerminateProcess(GetCurrentProcess(), 0);
 }
 
+#else
+
+// Leave, and come back up playing `next`. On Linux the process replaces
+// itself rather than starting a second one: exec drops everything this one
+// holds - the guest's memory, the archives - in the same step, so there is
+// no predecessor to wait for and the guest's memory gets its usual address.
+// Every other flag is passed through, as on Windows.
+void Relaunch(const NbaMod& next) {
+  {
+    std::lock_guard<std::mutex> guard(g_lock);
+    if (g_swapping) return;
+    g_swapping = true;
+  }
+  REXLOG_INFO("mod swap: -> {} ({})", next.id, next.path);
+  std::vector<std::string> args = NbaCommandLine();
+  const std::string root = "--game_data_root=" + next.path;
+  bool said = false;
+  for (size_t i = 1; i < args.size(); ++i) {
+    if (args[i].rfind("--game_data_root=", 0) == 0) {
+      args[i] = root;
+      said = true;
+    }
+  }
+  if (!said) args.push_back(root);
+  std::vector<char*> argv;
+  for (auto& a : args) argv.push_back(a.data());
+  argv.push_back(nullptr);
+  // From the root it is going to play, as a fresh launch is.
+  if (chdir(next.path.c_str()) != 0) {
+    REXLOG_WARN("mod swap: could not change to {}", next.path);
+  }
+  const std::string exe = NbaExePath().string();
+  execv(exe.c_str(), argv.data());
+  REXLOG_ERROR("mod swap: could not relaunch ({})", errno);
+  std::lock_guard<std::mutex> guard(g_lock);
+  g_swapping = false;
+}
+
+#endif
+
 }  // namespace
 
 bool NbaModList(std::vector<NbaMod>* mods, size_t* active) {
@@ -264,6 +313,9 @@ void NbaModSwapTo(const NbaMod& next) {
 bool NbaModSwapIsRelaunch() { return g_relaunched; }
 
 void NbaModSwapTakeForeground(void* hwnd) {
+#ifndef _WIN32
+  (void)hwnd;   // the process was replaced in place, window manager and all
+#else
   if (!g_relaunched || !hwnd) return;
   HWND window = static_cast<HWND>(hwnd);
   // The game it replaced gave up the right to the foreground on its way out,
@@ -290,13 +342,19 @@ void NbaModSwapTakeForeground(void* hwnd) {
   SetForegroundWindow(window);
   SetActiveWindow(window);
   AttachThreadInput(ours, theirs, FALSE);
+#endif
 }
 
 void NbaModSwapUseRoot(const std::filesystem::path& root) {
+#ifdef _WIN32
   g_root = root.empty() ? std::string() : Narrow(root.wstring());
+#else
+  g_root = root.string();
+#endif
 }
 
 void NbaModSwapWaitForPredecessor() {
+#ifdef _WIN32
   wchar_t buf[32]{};
   const DWORD n = GetEnvironmentVariableW(kFromPid, buf, 32);
   if (n == 0 || n >= 32) return;
@@ -310,4 +368,5 @@ void NbaModSwapWaitForPredecessor() {
   if (!h) return;      // already gone, which is the common case
   WaitForSingleObject(h, kWaitForExitMs);
   CloseHandle(h);
+#endif
 }

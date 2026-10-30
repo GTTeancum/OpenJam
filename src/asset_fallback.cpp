@@ -21,7 +21,7 @@
 #include "asset_fallback.h"
 #include "guest_base.h"
 
-#include <windows.h>
+#include "host.h"
 
 #include <cstdint>
 
@@ -30,27 +30,14 @@
 namespace {
 
 bool Enabled() {
-  static const bool on = [] {
-    char buf[8]{};
-    const DWORD n = GetEnvironmentVariableA("NBAJAM_NO_ASSET_FALLBACK", buf,
-                                            sizeof(buf));
-    return !(n > 0 && n < sizeof(buf) && buf[0] != '0');
-  }();
+  static const bool on = !NbaEnvOn("NBAJAM_NO_ASSET_FALLBACK");
   return on;
 }
 
 // Whether this guest address can be read at all.
 bool Readable(uint32_t addr) {
   if (addr < 0x1000 || addr >= 0xC0000000) return false;
-  MEMORY_BASIC_INFORMATION mbi{};
-  const void* p = reinterpret_cast<const void*>(NbaGuestBase() + addr);
-  if (!VirtualQuery(p, &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT) {
-    return false;
-  }
-  const DWORD ok = PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ |
-                   PAGE_EXECUTE_READWRITE | PAGE_WRITECOPY |
-                   PAGE_EXECUTE_WRITECOPY;
-  return (mbi.Protect & ok) && !(mbi.Protect & PAGE_GUARD);
+  return NbaReadable(reinterpret_cast<const void*>(NbaGuestBase() + addr), 4);
 }
 
 // Whether a remembered pointer still leads somewhere with an object in it.

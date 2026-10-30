@@ -21,6 +21,7 @@ option(REXPORT_GUEST_PROFILER "Sampling profiler for locating guest code" ON)
 
 set(NBAJAMOFE_SOURCES
     src/main.cpp
+    src/host.cpp
     src/guest_base.cpp
     src/kernel_usbcam_stubs.cpp
     src/nbajam_hooks.cpp
@@ -31,7 +32,6 @@ set(NBAJAMOFE_SOURCES
     src/apt_trace.cpp
     src/null_page.cpp
     src/unpack_container.cpp
-    src/watchdog.cpp
     src/asset_fallback.cpp
     src/mod_saves.cpp
     src/mod_swap.cpp
@@ -44,8 +44,12 @@ set(NBAJAMOFE_SOURCES
     src/video_tab.cpp
 )
 
+# The watchdog reads stuck threads through Windows' thread and exception
+# APIs; elsewhere it is a placeholder. See src/watchdog_posix.cpp.
 if(WIN32)
-    list(APPEND NBAJAMOFE_SOURCES res/app.rc)
+    list(APPEND NBAJAMOFE_SOURCES res/app.rc src/watchdog.cpp)
+else()
+    list(APPEND NBAJAMOFE_SOURCES src/watchdog_posix.cpp)
 endif()
 
 if(REXPORT_CRASH_REPORT AND WIN32)
@@ -61,6 +65,12 @@ if(WIN32)
     add_executable(nbajam_ofe WIN32 ${NBAJAMOFE_SOURCES})
 else()
     add_executable(nbajam_ofe ${NBAJAMOFE_SOURCES})
+endif()
+
+# The port's own code builds for Windows and Linux alike (src/host.h), so it
+# uses the standard fopen and getenv that Microsoft's runtime calls unsafe.
+if(WIN32)
+    target_compile_definitions(nbajam_ofe PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
 
 # GPU_PLUGINS is required: the Xenos backend is loaded at runtime rather than

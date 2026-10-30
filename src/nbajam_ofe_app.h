@@ -4,13 +4,12 @@
 
 #pragma once
 
-#include <windows.h>
-
 #include <filesystem>
 #include <system_error>
 
 #include "config_repair.h"
 #include "guest_base.h"
+#include "host.h"
 #include "mod_picker.h"
 #include "null_page.h"
 #include "unpack_container.h"
@@ -32,13 +31,7 @@ class NbajamOfeApp : public rex::ReXApp {
 
   // The folder the executable is in, which in a staged game is the game
   // folder itself.
-  static std::filesystem::path ExeDir() {
-    wchar_t buf[MAX_PATH]{};
-    if (!GetModuleFileNameW(nullptr, buf, MAX_PATH)) {
-      return {};
-    }
-    return std::filesystem::path(buf).parent_path();
-  }
+  static std::filesystem::path ExeDir() { return NbaExeDir(); }
 
   static std::unique_ptr<rex::ui::WindowedApp> Create(
       rex::ui::WindowedAppContext& ctx) {

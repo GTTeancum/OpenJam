@@ -22,7 +22,11 @@
 
 #include "video_settings.h"
 
+#include "host.h"
+
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 #include <cstdio>
 #include <filesystem>
@@ -46,9 +50,8 @@ constexpr Size kSizes[] = {{1280, 720}, {1280, 800}, {1600, 900},
 constexpr int kScales[] = {1, 2, 3};
 
 std::filesystem::path SettingsFile() {
-  wchar_t buf[MAX_PATH]{};
-  if (!GetModuleFileNameW(nullptr, buf, MAX_PATH)) return {};
-  return std::filesystem::path(buf).parent_path() / "nbajam_ofe.toml";
+  const auto dir = NbaExeDir();
+  return dir.empty() ? dir : dir / "nbajam_ofe.toml";
 }
 
 // Rewrite `key = value` lines for the given keys, adding any that are not
@@ -246,18 +249,18 @@ bool NbaVideoRestartPending() {
 }
 
 bool NbaRunningUnderWine() {
+#ifdef _WIN32
   static const bool wine = [] {
     HMODULE ntdll = GetModuleHandleW(L"ntdll.dll");
     return ntdll && GetProcAddress(ntdll, "wine_get_version") != nullptr;
   }();
   return wine;
+#else
+  return false;   // a native build is not running under Wine by definition
+#endif
 }
 
 bool NbaRunningOnSteamDeck() {
-  static const bool deck = [] {
-    char buf[4]{};
-    const DWORD n = GetEnvironmentVariableA("SteamDeck", buf, sizeof(buf));
-    return n > 0 && n < sizeof(buf) && buf[0] == '1';
-  }();
+  static const bool deck = NbaEnv("SteamDeck") == "1";
   return deck;
 }

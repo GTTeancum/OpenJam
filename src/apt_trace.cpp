@@ -50,8 +50,12 @@
 #include "apt_trace.h"
 #include "guest_base.h"
 
+#include "host.h"
+
+#ifdef _WIN32
 #include <windows.h>
 #include <dbghelp.h>
+#endif
 
 #include <atomic>
 #include <cstdint>
@@ -66,28 +70,19 @@
 namespace {
 
 bool Enabled() {
-  static const bool on = [] {
-    char buf[8]{};
-    DWORD n = GetEnvironmentVariableA("NBAJAM_APT_TRACE", buf, sizeof(buf));
-    return n > 0 && n < sizeof(buf) && buf[0] != '0';
-  }();
+  static const bool on = NbaEnvOn("NBAJAM_APT_TRACE");
   return on;
 }
 
 uint64_t StartAfterMs() {
-  static const uint64_t ms = [] {
-    char buf[16]{};
-    DWORD n = GetEnvironmentVariableA("NBAJAM_APT_TRACE_AFTER", buf, sizeof(buf));
-    return (n > 0 && n < sizeof(buf)) ? uint64_t(atoi(buf)) * 1000ull : 0ull;
-  }();
+  static const uint64_t ms =
+      uint64_t(atoi(NbaEnv("NBAJAM_APT_TRACE_AFTER").c_str())) * 1000ull;
   return ms;
 }
 
 uint32_t Budget() {
   static const uint32_t max = [] {
-    char buf[16]{};
-    DWORD n = GetEnvironmentVariableA("NBAJAM_APT_TRACE_MAX", buf, sizeof(buf));
-    uint32_t v = (n > 0 && n < sizeof(buf)) ? uint32_t(atoi(buf)) : 0;
+    const uint32_t v = uint32_t(atoi(NbaEnv("NBAJAM_APT_TRACE_MAX").c_str()));
     return v ? v : 4000u;
   }();
   return max;
@@ -113,11 +108,7 @@ uint64_t Fingerprint(uint32_t code, uint32_t len) {
 // functions led here - which is how to find out what only the main menu
 // calls. See the guest-debugging notes.
 bool Stacks() {
-  static const bool on = [] {
-    char buf[8]{};
-    DWORD n = GetEnvironmentVariableA("NBAJAM_APT_STACK", buf, sizeof(buf));
-    return n > 0 && n < sizeof(buf) && buf[0] != '0';
-  }();
+  static const bool on = NbaEnvOn("NBAJAM_APT_STACK");
   return on;
 }
 
@@ -125,9 +116,12 @@ void DumpStack() {
   // Twice a second is plenty: the question is which functions a screen runs,
   // not how often, and a stack line is long.
   static uint64_t last = 0;
-  const uint64_t now = GetTickCount64();
+  const uint64_t now = NbaNowMs();
   if (now - last < 500) return;
   last = now;
+#ifndef _WIN32
+  REXLOG_INFO("apt_stack: guest call stacks are Windows-only for now");
+#else
   static std::once_flag once;
   std::call_once(once, [] {
     SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_UNDNAME);
@@ -148,14 +142,11 @@ void DumpStack() {
     }
   }
   REXLOG_INFO("apt_stack:{}", line);
+#endif
 }
 
 bool Context() {
-  static const bool on = [] {
-    char buf[8]{};
-    DWORD n = GetEnvironmentVariableA("NBAJAM_APT_CTX", buf, sizeof(buf));
-    return n > 0 && n < sizeof(buf) && buf[0] != '0';
-  }();
+  static const bool on = NbaEnvOn("NBAJAM_APT_CTX");
   return on;
 }
 
@@ -164,16 +155,7 @@ bool Context() {
 // and faults only when it is touched; this asks first.
 bool Readable(uint32_t addr, uint32_t len) {
   if (addr < 0x1000 || addr >= 0xC0000000) return false;
-  MEMORY_BASIC_INFORMATION mbi{};
-  const void* p = reinterpret_cast<const void*>(NbaGuestBase() + addr);
-  if (!VirtualQuery(p, &mbi, sizeof(mbi))) return false;
-  if (mbi.State != MEM_COMMIT) return false;
-  const DWORD ok = PAGE_READONLY | PAGE_READWRITE | PAGE_EXECUTE_READ |
-                   PAGE_EXECUTE_READWRITE | PAGE_WRITECOPY |
-                   PAGE_EXECUTE_WRITECOPY;
-  if (!(mbi.Protect & ok) || (mbi.Protect & PAGE_GUARD)) return false;
-  const uintptr_t end = uintptr_t(mbi.BaseAddress) + mbi.RegionSize;
-  return uintptr_t(p) + len <= end;
+  return NbaReadable(reinterpret_cast<const void*>(NbaGuestBase() + addr), len);
 }
 
 // Guest memory at an address, as bytes and as whatever text is in it. Used
@@ -261,7 +243,7 @@ bool Match(const Beat* beats, size_t count, uint32_t code, uint32_t len,
 void Watch(uint32_t code, uint32_t len) {
   uint64_t print = 0;
   bool hashed = false;
-  const uint64_t now = GetTickCount64();
+  const uint64_t now = NbaNowMs();
   if (Match(kMainMenu, sizeof(kMainMenu) / sizeof(*kMainMenu), code, len,
             &print, &hashed)) {
     g_menu_seen.store(now, std::memory_order_relaxed);
@@ -278,7 +260,7 @@ bool NbaFrontEndOnMainMenu() {
   const uint64_t menu = g_menu_seen.load(std::memory_order_relaxed);
   const uint64_t frame = g_frame_seen.load(std::memory_order_relaxed);
   if (menu == 0 || frame == 0) return false;
-  const uint64_t now = GetTickCount64();
+  const uint64_t now = NbaNowMs();
   return now - menu < kMenuGoodForMs && now - frame < kFrameGoodForMs;
 }
 
@@ -292,8 +274,8 @@ void NbaAptBlock(PPCRegister& r3, PPCRegister& r4, PPCRegister& r5,
   static uint32_t seen = 0;
   static uint64_t last_print = 0;
 
-  static const uint64_t started = GetTickCount64();
-  if (GetTickCount64() - started < StartAfterMs()) {
+  static const uint64_t started = NbaNowMs();
+  if (NbaNowMs() - started < StartAfterMs()) {
     return;
   }
 

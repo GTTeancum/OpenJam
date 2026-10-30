@@ -30,7 +30,14 @@
 #include "null_page.h"
 #include "guest_base.h"
 
+#include "host.h"
+
+#ifdef _WIN32
 #include <windows.h>
+#else
+#include <sys/mman.h>
+#include <cerrno>
+#endif
 
 #include <cstdint>
 
@@ -40,15 +47,9 @@ namespace {
 
 // Generous: the reads that have killed this port landed between 0x18 and
 // 0x2AC, and a structure with a large field offset could reach further.
-constexpr SIZE_T kNullPageSize = 64 * 1024;
+constexpr size_t kNullPageSize = 64 * 1024;
 
-bool Wanted() {
-  char buf[8]{};
-  const DWORD n = GetEnvironmentVariableA("NBAJAM_NO_NULL_PAGE", buf,
-                                          sizeof(buf));
-  const bool off = n > 0 && n < sizeof(buf) && buf[0] != '0';
-  return !off;
-}
+bool Wanted() { return !NbaEnvOn("NBAJAM_NO_NULL_PAGE"); }
 
 }  // namespace
 
@@ -59,6 +60,18 @@ void NbaMapNullPage() {
     return;
   }
   void* at = reinterpret_cast<void*>(NbaGuestBase());
+#ifndef _WIN32
+  // The runtime maps the whole arena with no access and opens pages as the
+  // guest allocates them; the guest never allocates page zero. Opening it is
+  // all there is to do, and anonymous pages come up zeroed.
+  if (mprotect(at, kNullPageSize, PROT_READ | PROT_WRITE) == 0) {
+    REXLOG_INFO("null page: {} KB opened at guest zero, so a missing asset "
+                "degrades rather than crashes", kNullPageSize / 1024);
+  } else {
+    REXLOG_WARN("null page: could not open address zero ({}); a missing "
+                "asset will take the game down", errno);
+  }
+#else
   MEMORY_BASIC_INFORMATION mbi{};
   const bool known = VirtualQuery(at, &mbi, sizeof(mbi)) != 0;
   REXLOG_INFO("null page: guest zero is state {:X} protect {:X} over {} KB",
@@ -97,4 +110,5 @@ void NbaMapNullPage() {
   // are testing for.
   REXLOG_INFO("null page: {} KB mapped at guest zero, so a missing asset "
               "degrades rather than crashes", kNullPageSize / 1024);
+#endif
 }

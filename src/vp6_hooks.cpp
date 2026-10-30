@@ -42,7 +42,7 @@
 #include "vp6_hooks.h"
 #include "guest_base.h"
 
-#include <windows.h>
+#include "host.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -65,16 +65,11 @@ int16_t LoadBE16(const uint8_t* p) {
   return int16_t((uint16_t(p[0]) << 8) | uint16_t(p[1]));
 }
 
-bool EnvOn(const char* name) {
-  char buf[16]{};
-  DWORD n = GetEnvironmentVariableA(name, buf, sizeof(buf));
-  return n > 0 && n < sizeof(buf) && buf[0] != '0';
-}
+bool EnvOn(const char* name) { return NbaEnvOn(name); }
 
 uint64_t EnvNum(const char* name) {
-  char buf[32]{};
-  DWORD n = GetEnvironmentVariableA(name, buf, sizeof(buf));
-  return (n > 0 && n < sizeof(buf)) ? strtoull(buf, nullptr, 0) : 0;
+  const std::string v = NbaEnv(name);
+  return v.empty() ? 0 : strtoull(v.c_str(), nullptr, 0);
 }
 
 const bool g_native = EnvOn("NBAJAM_VP6_NATIVE_BLOCK");
@@ -83,11 +78,7 @@ const uint64_t g_dump_at = EnvNum("NBAJAM_VP6_DUMP_AT");
 const uint64_t g_dump_ms = EnvNum("NBAJAM_VP6_DUMP_MS");
 
 std::string SidecarPath(const std::string& name) {
-  char exe[MAX_PATH]{};
-  GetModuleFileNameA(nullptr, exe, MAX_PATH);
-  std::string p(exe);
-  size_t slash = p.find_last_of("\\/");
-  return (slash == std::string::npos ? std::string() : p.substr(0, slash + 1)) + name;
+  return (NbaExeDir() / name).string();
 }
 
 //---------------------------------------------------------------------------
@@ -115,7 +106,7 @@ bool g_dumped = false;
 
 void WriteGeometryReport() {
   FILE* f = nullptr;
-  if (fopen_s(&f, SidecarPath("vp6_geometry.txt").c_str(), "w") != 0 || !f) {
+  if (!(f = std::fopen(SidecarPath("vp6_geometry.txt").c_str(), "w"))) {
     return;
   }
   fprintf(f, "sub_824E5FD8 destinations after %llu calls\n\n",
@@ -149,7 +140,7 @@ void WritePlaneDump(uint64_t call) {
   char name[64];
   snprintf(name, sizeof(name), "vp6_planes_%llu.bin", static_cast<unsigned long long>(call));
   FILE* f = nullptr;
-  if (fopen_s(&f, SidecarPath(name).c_str(), "wb") != 0 || !f) {
+  if (!(f = std::fopen(SidecarPath(name).c_str(), "wb"))) {
     return;
   }
   // 64-byte text header, then the raw bytes.
@@ -160,7 +151,7 @@ void WritePlaneDump(uint64_t call) {
   fclose(f);
 
   FILE* t = nullptr;
-  if (fopen_s(&t, SidecarPath(std::string(name) + ".txt").c_str(), "w") == 0 && t) {
+  if ((t = std::fopen(SidecarPath(std::string(name) + ".txt").c_str(), "w"))) {
     fprintf(t, "base 0x%08X  len %zu  at call %llu\n", lo, len,
             static_cast<unsigned long long>(call));
     for (const auto& [stride, r] : g_by_stride) {
@@ -180,14 +171,14 @@ void Observe(uint32_t dst, uint32_t stride) {
   ++r.calls;
 
   if (g_first_tick == 0) {
-    g_first_tick = GetTickCount64();
+    g_first_tick = NbaNowMs();
   }
   if (!g_dumped && g_dump_at && g_calls >= g_dump_at) {
     g_dumped = true;
     WritePlaneDump(g_calls);
   }
   if (g_dump_ms && g_dumps < 6 &&
-      GetTickCount64() - g_first_tick >= g_dump_ms * uint64_t(g_dumps + 1)) {
+      NbaNowMs() - g_first_tick >= g_dump_ms * uint64_t(g_dumps + 1)) {
     ++g_dumps;
     WritePlaneDump(g_calls);
   }

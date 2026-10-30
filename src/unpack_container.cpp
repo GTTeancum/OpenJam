@@ -16,8 +16,11 @@
 
 #include "unpack_container.h"
 
+#include "host.h"
+
+#ifdef _WIN32
 #include <windows.h>
-#include <shellapi.h>
+#endif
 
 #include <rex/filesystem/devices/stfs_container_device.h>
 #include <rex/filesystem/entry.h>
@@ -26,6 +29,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <queue>
 #include <span>
@@ -157,8 +161,8 @@ int NbaUnpackLiveContainer(
                   entry->path());
       continue;
     }
-    FILE* f = nullptr;
-    if (fopen_s(&f, out.string().c_str(), "wb") != 0 || !f) {
+    FILE* f = std::fopen(out.string().c_str(), "wb");
+    if (!f) {
       REXLOG_ERROR("unpack: could not write {}", out.string());
       in->Destroy();
       return -1;
@@ -199,30 +203,32 @@ int NbaUnpackLiveContainer(
 }
 
 void NbaUnpackIfAsked() {
-  int argc = 0;
-  LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-  if (!argv) return;
+  const std::vector<std::string> argv = NbaCommandLine();
+  const size_t argc = argv.size();
   fs::path container, into;
-  for (int i = 1; i < argc; ++i) {
-    const std::wstring a = argv[i];
-    if (a == L"--unpack" && i + 1 < argc) {
-      container = argv[++i];
-    } else if (a == L"--into" && i + 1 < argc) {
-      into = argv[++i];
+  for (size_t i = 1; i < argc; ++i) {
+    const std::string& a = argv[i];
+    if (a == "--unpack" && i + 1 < argc) {
+      container = NbaPathFromUtf8(argv[++i]);
+    } else if (a == "--into" && i + 1 < argc) {
+      into = NbaPathFromUtf8(argv[++i]);
     }
   }
-  LocalFree(argv);
   if (container.empty()) return;
   if (into.empty()) into = container.parent_path();
 
   // This executable has no console of its own. Borrowing whoever started it
   // means progress shows up for a person running it from a prompt, and costs
   // nothing when something else started it.
+#ifdef _WIN32
   const bool console = AttachConsole(ATTACH_PARENT_PROCESS) != 0;
   if (console) {
     FILE* attached = nullptr;
     freopen_s(&attached, "CONOUT$", "w", stdout);
   }
+#else
+  const bool console = true;   // a Linux build always has the terminal it was started from
+#endif
 
   std::error_code ec;
   fs::create_directories(into, ec);
@@ -246,8 +252,7 @@ void NbaUnpackIfAsked() {
         std::snprintf(progress, sizeof(progress), "%3d%%  %s\n", pct,
                       name.c_str());
         Say(console, progress);
-        FILE* f = nullptr;
-        if (fopen_s(&f, note.string().c_str(), "w") == 0 && f) {
+        if (FILE* f = std::fopen(note.string().c_str(), "w")) {
           std::fprintf(f, "%d %d %s\n", done, total, name.c_str());
           std::fclose(f);
         }
@@ -256,10 +261,10 @@ void NbaUnpackIfAsked() {
   fs::remove(note, ec);
   if (n < 0) {
     Say(console, "that file is not an Xbox Live container this can read\n");
-    ExitProcess(1);
+    std::exit(1);
   }
   std::snprintf(line, sizeof(line), "done: %d file(s) in %s\n", n,
                 into.string().c_str());
   Say(console, line);
-  ExitProcess(0);
+  std::exit(0);
 }

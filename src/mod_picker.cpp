@@ -86,10 +86,9 @@
 #include "mod_picker.h"
 
 #include "apt_trace.h"
+#include "host.h"
 #include "host_pad.h"
 #include "mod_swap.h"
-
-#include <windows.h>
 
 #include <imgui.h>
 #include <imgui_internal.h>   // custom atlas rectangles, for the buttons
@@ -619,12 +618,7 @@ class Picker : public rex::ui::ImGuiDialog {
   static void Pad() {
     // A test drives the chooser through the guest instead, and on a machine
     // with a controller plugged in the two would fight, so it can say so.
-    static const bool ignore = [] {
-      char buf[8]{};
-      const DWORD n = GetEnvironmentVariableA("NBAJAM_IGNORE_HOST_PAD", buf,
-                                              sizeof(buf));
-      return n > 0 && n < sizeof(buf) && buf[0] != '0';
-    }();
+    static const bool ignore = NbaEnvOn("NBAJAM_IGNORE_HOST_PAD");
     uint16_t buttons = 0;
     uint8_t trigger = 0;
     if (ignore || !NbaHostPad(&buttons, &trigger)) {
@@ -662,11 +656,7 @@ class Picker : public rex::ui::ImGuiDialog {
   }
 };
 
-std::filesystem::path ExeDir() {
-  wchar_t buf[MAX_PATH]{};
-  if (!GetModuleFileNameW(nullptr, buf, MAX_PATH)) return {};
-  return std::filesystem::path(buf).parent_path();
-}
+std::filesystem::path ExeDir() { return NbaExeDir(); }
 
 ImFont* AddFace(ImFontAtlas* atlas, const std::filesystem::path& file) {
   std::error_code ec;
@@ -685,8 +675,12 @@ ImFont* AddFace(ImFontAtlas* atlas, const std::filesystem::path& file) {
 // has to know how to read an image file.
 void AddPicture(ImFontAtlas* atlas, const std::filesystem::path& file,
                 Picture* out) {
-  std::FILE* f = nullptr;
-  if (_wfopen_s(&f, file.c_str(), L"rb") != 0 || !f) return;
+#ifdef _WIN32
+  std::FILE* f = _wfopen(file.c_str(), L"rb");
+#else
+  std::FILE* f = std::fopen(file.c_str(), "rb");
+#endif
+  if (!f) return;
   unsigned char head[12]{};
   const bool ok = std::fread(head, 1, sizeof(head), f) == sizeof(head) &&
                   std::memcmp(head, "NBTX", 4) == 0;

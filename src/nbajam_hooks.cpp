@@ -12,16 +12,19 @@
 #include "nbajam_hooks.h"
 #include "guest_base.h"
 
-#include <windows.h>
+#include "host.h"
 
+#ifdef _WIN32
+#include <windows.h>
 #include <dbghelp.h>
+#pragma comment(lib, "dbghelp.lib")
+#endif
 
 #include <cstdarg>
 #include <cstdio>
+#include <cstring>
 #include <mutex>
 #include <string>
-
-#pragma comment(lib, "dbghelp.lib")
 
 namespace {
 
@@ -34,30 +37,18 @@ constexpr int kMaxEvents = 40;
 // every launch otherwise, walking the stack each time, so it is off unless
 // NBAJAM_FILE_TRACE=1 asks for it.
 bool FileTraceWanted() {
-  static const bool on = [] {
-    char buf[8]{};
-    DWORD n = GetEnvironmentVariableA("NBAJAM_FILE_TRACE", buf, sizeof(buf));
-    return n > 0 && n < sizeof(buf) && buf[0] != '0';
-  }();
+  static const bool on = NbaEnvOn("NBAJAM_FILE_TRACE");
   return on;
 }
 
 const char* ReportPath() {
-  static char path[MAX_PATH]{};
-  if (!path[0]) {
-    char exe[MAX_PATH]{};
-    GetModuleFileNameA(nullptr, exe, MAX_PATH);
-    std::string p(exe);
-    size_t slash = p.find_last_of("\\/");
-    p = (slash == std::string::npos ? std::string() : p.substr(0, slash + 1)) + "hooks.txt";
-    strncpy_s(path, p.c_str(), _TRUNCATE);
-  }
-  return path;
+  static const std::string path = (NbaExeDir() / "hooks.txt").string();
+  return path.c_str();
 }
 
 void Emit(const char* fmt, ...) {
   FILE* f = nullptr;
-  if (fopen_s(&f, ReportPath(), "a") != 0 || !f) {
+  if (!(f = std::fopen(ReportPath(), "a"))) {
     return;
   }
   va_list args;
@@ -69,16 +60,27 @@ void Emit(const char* fmt, ...) {
 }
 
 bool ReadGuest(uint32_t guest, void* out, size_t len) {
+  const void* from = reinterpret_cast<const void*>(NbaGuestBase() + guest);
+#ifdef _WIN32
   __try {
-    memcpy(out, reinterpret_cast<const void*>(NbaGuestBase() + guest), len);
+    memcpy(out, from, len);
     return true;
   } __except (EXCEPTION_EXECUTE_HANDLER) {
     return false;
   }
+#else
+  if (!NbaReadable(from, len)) return false;
+  memcpy(out, from, len);
+  return true;
+#endif
 }
 
 // A guest pointer can look plausible and still be backed by nothing.
 const char* Backing(uint32_t guest) {
+#ifndef _WIN32
+  return NbaReadable(reinterpret_cast<const void*>(NbaGuestBase() + guest), 1)
+             ? "mapped" : "UNMAPPED";
+#else
   MEMORY_BASIC_INFORMATION mbi{};
   if (!VirtualQuery(reinterpret_cast<LPCVOID>(NbaGuestBase() + guest), &mbi, sizeof(mbi))) {
     return "query-failed";
@@ -90,6 +92,7 @@ const char* Backing(uint32_t guest) {
     return "RESERVED-NOT-COMMITTED";
   }
   return "FREE";
+#endif
 }
 
 // Recompiled guest functions are ordinary C++ functions named sub_<address>,
@@ -97,6 +100,9 @@ const char* Backing(uint32_t guest) {
 // lock from a guest thread that may hold the runtime's global critical region,
 // so this is best-effort and never allowed to take the process with it.
 void EmitStack() {
+#ifndef _WIN32
+  Emit("    <stack walks are Windows-only for now>\n");
+#else
   __try {
     static bool inited = false;
     if (!inited) {
@@ -121,6 +127,7 @@ void EmitStack() {
   } __except (EXCEPTION_EXECUTE_HANDLER) {
     Emit("    <stack walk failed>\n");
   }
+#endif
 }
 
 void EmitGuestString(const char* label, uint32_t guest) {
