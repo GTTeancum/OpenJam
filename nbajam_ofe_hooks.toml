@@ -51,3 +51,12 @@ registers = ["r3", "r4", "r5", "r6"]
 address = 0x823678B4
 name = "NbaAssetFallback"
 registers = ["r3", "r31"]
+
+# Saves: the runtime keeps only the low half of the player id the game lists
+# its saves under, so it never found them and every launch started a new one.
+# Sits after the bctrl into XamContentAggregateCreateEnumerator in
+# sub_8254C8E8 and redoes that call with the whole id. See src/save_lookup.cpp.
+[[midasm_hook]]
+address = 0x8254C98C
+name = "NbaSaveLookupFullId"
+registers = ["r1", "r3", "r26", "r27", "r31"]

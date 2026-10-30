@@ -39,6 +39,7 @@ set(NBAJAMOFE_SOURCES
     src/host_pad.cpp
     src/window_title.cpp
     src/config_repair.cpp
+    src/save_lookup.cpp
 )
 
 if(WIN32)
