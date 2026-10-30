@@ -82,6 +82,7 @@ def main():
             "--hidden-import", "ps3_pkg_extract",
             "--hidden-import", "roster_update",
             "--hidden-import", "verify_assets",
+            "--hidden-import", "dlc",
             "--paths", str(HERE),
             str(HERE / "modmanager.py")]
     if icon:

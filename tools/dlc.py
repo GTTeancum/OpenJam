@@ -529,7 +529,7 @@ def stage_fonts(out):
 # has PlayStation shapes in it, which would be wrong on a build that says A
 # and B everywhere else.
 GLYPH_AST = "data/xenon/fe/bounce/parts/helpbarcallout.ast"
-GLYPHS = {8: "y", 10: "a", 11: "b", 14: "lt", 18: "dpad"}
+GLYPHS = {8: "y", 9: "x", 10: "a", 11: "b", 14: "lt", 18: "dpad"}
 
 # Pictures, in the plainest form the runtime can read without a decoder in
 # it: a tag, the size, and the pixels.

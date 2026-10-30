@@ -126,6 +126,7 @@ def unpack_container(game_exe, container, into, say=print, progress=None):
         note.unlink()
     if proc.returncode != 0 or not is_game_folder(into):
         return False
+    stage_ui(into, say)
     say("Unpacked.")
     return True
 
@@ -274,6 +275,32 @@ def write_mod_list(game, mods, active, into):
             m.get("author", ""), m.get("files", "")))
     (Path(into) / MOD_LIST).write_text("\n".join(lines) + "\n",
                                        encoding="utf-8")
+
+
+# What the port draws its own screens with - the mod list on the main menu
+# and the video panel - and what this manager's window is set in: the front
+# end's two typefaces and the help bar's button pictures, unpacked from the
+# base game into `ui` beside the executable. Only the base game's copies are
+# read, since a mod's came from the PS3 and has PlayStation buttons in it.
+UI_FILES = ("display.ttf", "text.ttf", "glyph_a.tex", "glyph_b.tex",
+            "glyph_x.tex", "glyph_y.tex", "glyph_lt.tex", "glyph_dpad.tex")
+
+
+def stage_ui(game, say=lambda _s: None):
+    """Unpack the game's typefaces and button pictures, if any are missing."""
+    game = Path(game)
+    if not is_game_folder(game):
+        return
+    if all((game / "ui" / f).is_file() for f in UI_FILES):
+        return
+    try:
+        import dlc
+        dlc.stage_fonts(game)
+        dlc.stage_glyphs(game)
+    except Exception as exc:                     # noqa: BLE001
+        # Nothing depends on these: without them the game draws its own
+        # screens in the runtime's face, and this window in the system's.
+        say("  could not unpack the game's typefaces: %s" % exc)
 
 
 def refresh_lists(game):
