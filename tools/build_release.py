@@ -35,6 +35,10 @@ SHIPPED = [
     ("rexgpu-xenosrd.dll", BUILD / "rexgpu-xenosrd.dll", "graphics"),
     ("TracyClientrd.dll", BUILD / "TracyClientrd.dll", "profiler client"),
     ("NBA JAM Mod Manager.exe", MANAGER, "setup and mods"),
+    ("gamecontrollerdb.txt", PORT / "res" / "gamecontrollerdb.txt",
+     "controller mappings"),
+    ("gamecontrollerdb.LICENSE.txt",
+     PORT / "res" / "gamecontrollerdb.LICENSE.txt", "its licence"),
 ]
 
 README = """NBA JAM: On Fire Edition - PC port (OpenJam) v{version}

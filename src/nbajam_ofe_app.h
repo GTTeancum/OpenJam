@@ -86,6 +86,22 @@ class NbajamOfeApp : public rex::ReXApp {
     if (REXCVAR_GET(license_mask) == 0u) {
       REXCVAR_SET(license_mask, 1u);
     }
+    // The runtime looks for its controller mappings in whatever folder the
+    // game was started from, which for a shortcut or a Steam entry is often
+    // not the game's. The copy that ships is beside the executable. Made the
+    // default rather than merely set, so that saving settings (F4) does not
+    // write this folder's path into the file and break it when the folder
+    // moves. Nothing else reads the registry yet; see fullscreen below.
+    if (const auto* flag = rex::cvar::GetFlagInfo("hid_mappings_file")) {
+      const std::filesystem::path db = ExeDir() / "gamecontrollerdb.txt";
+      std::error_code ec;
+      if (flag->source == rex::cvar::Source::kDefault &&
+          std::filesystem::exists(db, ec)) {
+        auto* entry = const_cast<rex::cvar::FlagEntry*>(flag);
+        entry->setter(db.string());
+        entry->default_value = db.string();
+      }
+    }
     // Windowed unless someone asks for otherwise. The runtime starts
     // fullscreen by default, and the game then asks for its own video mode a
     // moment later, so a plain double-click filled the screen and then

@@ -83,3 +83,13 @@ add_custom_target(nbajam_ofe_fix_vectors
     VERBATIM)
 add_dependencies(nbajam_ofe_fix_vectors nbajam_ofe_codegen)
 add_dependencies(nbajam_ofe_recomp nbajam_ofe_fix_vectors)
+
+# Mappings for controllers SDL does not know out of the box, read from beside
+# the executable (src/nbajam_ofe_app.h). Without it every launch warns that
+# the file is missing and such pads do nothing. Source and licence in
+# res/gamecontrollerdb.LICENSE.txt.
+add_custom_command(TARGET nbajam_ofe POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/res/gamecontrollerdb.txt"
+        "$<TARGET_FILE_DIR:nbajam_ofe>/gamecontrollerdb.txt"
+    VERBATIM)
