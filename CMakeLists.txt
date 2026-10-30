@@ -40,6 +40,8 @@ set(NBAJAMOFE_SOURCES
     src/window_title.cpp
     src/config_repair.cpp
     src/save_lookup.cpp
+    src/video_settings.cpp
+    src/video_tab.cpp
 )
 
 if(WIN32)

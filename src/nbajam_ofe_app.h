@@ -14,6 +14,7 @@
 #include "mod_picker.h"
 #include "null_page.h"
 #include "unpack_container.h"
+#include "video_settings.h"
 #include "mod_saves.h"
 #include "mod_swap.h"
 #include "watchdog.h"
@@ -117,11 +118,21 @@ class NbajamOfeApp : public rex::ReXApp {
     // windowed again. Making windowed this port's default fixes both: a saved
     // fullscreen is now a difference, and gets written. Nothing else reads
     // the registry yet, so changing the entry in place is safe here.
+    //
+    // Except under Proton, which is what a Steam Deck runs this through:
+    // there the game is the only thing on the screen and a window is the
+    // startling choice, so fullscreen stays the default. The video panel
+    // (src/video_settings.cpp) changes it either way.
+    const bool wine = NbaRunningUnderWine();
     if (const auto* flag = rex::cvar::GetFlagInfo("fullscreen")) {
       if (flag->source == rex::cvar::Source::kDefault) {
-        REXCVAR_SET(fullscreen, false);
+        REXCVAR_SET(fullscreen, wine);
       }
-      const_cast<rex::cvar::FlagEntry*>(flag)->default_value = "false";
+      const_cast<rex::cvar::FlagEntry*>(flag)->default_value =
+          wine ? "true" : "false";
+    }
+    if (wine) {
+      REXLOG_INFO("running under Wine or Proton: fullscreen unless asked");
     }
     // Stated at boot because the game does not query the mask until well into
     // the front end, so the log is the only way to confirm it without playing.
@@ -191,6 +202,11 @@ class NbajamOfeApp : public rex::ReXApp {
     // the game's own input still while it does; see src/mod_picker.cpp.
     NbaModPickerUseInput(
         static_cast<rex::input::InputSystem*>(runtime()->input_system()));
+    // The Video tab is changed from the game's thread, and fullscreen has to
+    // be switched from the window's; see src/video_settings.cpp.
+    NbaVideoUseUiThread([this](std::function<void()> fn) {
+      app_context().CallInUIThread(std::move(fn));
+    });
     // Said here rather than where it is decided, because paths are resolved
     // before logging exists.
     REXLOG_INFO("saves: {}{}", user_data_root().string(),

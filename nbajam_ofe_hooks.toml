@@ -60,3 +60,79 @@ registers = ["r3", "r31"]
 address = 0x8254C98C
 name = "NbaSaveLookupFullId"
 registers = ["r1", "r3", "r26", "r27", "r31"]
+
+# The Video tab in Options > Settings. The screen asks the game for its tabs,
+# rows, choices and values; these answer for tab 8 and the rows in it. See
+# src/video_tab.cpp, which explains each address.
+#
+# The tab list, sub_822D7688: before the list is handed over, at loc_822D77B0.
+[[midasm_hook]]
+address = 0x822D77B0
+name = "NbaVideoTabList"
+registers = ["r1", "r25"]
+
+# ...after its name key is read from a table eight entries long...
+[[midasm_hook]]
+address = 0x822D782C
+name = "NbaVideoTabNameKey"
+registers = ["r5", "r28"]
+after_instruction = true
+
+# ...as the looked-up name is set...
+[[midasm_hook]]
+address = 0x822D7858
+name = "NbaVideoTabName"
+registers = ["r6", "r28"]
+
+# ...as the line under the tabs is set...
+[[midasm_hook]]
+address = 0x822D7878
+name = "NbaVideoTabMessage"
+registers = ["r6", "r28"]
+
+# ...and after its description key is read from the next table.
+[[midasm_hook]]
+address = 0x822D787C
+name = "NbaVideoTabNoDescription"
+registers = ["r27", "r28"]
+after_instruction = true
+
+# A tab's rows, sub_822E2308: the switch's common exit.
+[[midasm_hook]]
+address = 0x822E23DC
+name = "NbaVideoTabRows"
+registers = ["r3", "r29", "r31"]
+
+# Choices, the current choice, a change, and Restore Defaults: first
+# instruction of each.
+[[midasm_hook]]
+address = 0x822DCC58
+name = "NbaVideoTabChoices"
+registers = ["r3", "r4", "r6"]
+return_on_true = true
+
+[[midasm_hook]]
+address = 0x822DD800
+name = "NbaVideoTabValue"
+registers = ["r3", "r4", "r5"]
+return_on_true = true
+
+[[midasm_hook]]
+address = 0x822DD980
+name = "NbaVideoTabChange"
+registers = ["r3", "r4", "r6"]
+return_on_true = true
+
+[[midasm_hook]]
+address = 0x822DD628
+name = "NbaVideoTabReset"
+registers = ["r4"]
+return_on_true = true
+
+# ...and how many rows a tab has, sub_822DC750, which the rows list is sized
+# by before anything is put in it: none, for a tab it does not know.
+[[midasm_hook]]
+address = 0x822DC750
+name = "NbaVideoTabRowCount"
+registers = ["r3", "r4"]
+return_on_true = true

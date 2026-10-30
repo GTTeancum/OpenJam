@@ -51,6 +51,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
@@ -312,6 +313,13 @@ void NbaScriptedInput(PPCRegister& r1, PPCRegister& r26, PPCRegister& r3) {
   // step and lets go, so there is otherwise no way to drive the chooser from
   // one - see src/mod_picker.cpp.
   if (EnvNum("NBAJAM_INPUT_LT_HELD", 0)) st[6] = 0xFF;
+  // sub_8299C658 reads the pad twice and takes only wButtons from this
+  // second read; the triggers come from the first, at r1+96. Without this a
+  // scripted LT or RT - the Settings screen's tab change, for one - never
+  // reaches the game.
+  uint8_t* first = reinterpret_cast<uint8_t*>(NbaGuestBase() + r1.u32 + 96);
+  first[6] = (std::max)(first[6], st[6]);
+  first[7] = (std::max)(first[7], st[7]);
 
   r3.u32 = 0;   // ERROR_SUCCESS: tell the game the pad is there
   // A script drives the mod picker as a person would, which is what makes it
