@@ -81,14 +81,39 @@ starting a second one; the mod chooser reads the pad through SDL; the null
 page is opened with `mprotect`; the stall watchdog and the developer stack
 walks are Windows-only (`src/watchdog_posix.cpp` stands in).
 
-State: it boots, plays sound and draws the title and menus correctly at 60
-fps. In a match it does not - players' limbs unlit, the upper arena dark, the
-top score bar missing - with either `--render_target_path_vulkan` (`fsi` or
-`fbo`). That was on WSL's software Vulkan driver (llvmpipe), the only one
-available there; the Windows build under Wine with vkd3d-proton draws matches
-correctly on the same driver, so the fault is in the runtime's Vulkan backend
-or in how it meets llvmpipe, and a real GPU is needed to tell which. Until
-then, Linux and the Steam Deck are served by the Windows build through Proton.
+State: it boots, plays sound and draws menus and matches correctly at 60 fps
+on WSL's software Vulkan driver (llvmpipe) - with the SDK patch below. The
+stock v0.10.0 SDK draws matches wrong on Vulkan (players' limbs black, upper
+arena dark, score bar and scorer's-table digits missing): its SPIR-V shader
+translator reads a texture's exponent adjust from the wrong fetch-constant
+word (word 4, where the LOD bias lives, instead of word 3), so every texture
+with a LOD bias is scaled by 2^(garbage). The D3D12 translator reads the right
+word, which is why Windows was never affected.
+
+`tools/sdk-patches/0001-vulkan-texture-exponent-and-watch-race.patch` fixes
+that in the SDK source (and closes a small window in the texture cache where
+a CPU write landing between a texture's upload and its watch registration
+left the texture stale). To use it, the SDK's `rexgpu-xenos` library has to
+be rebuilt from source in WSL:
+
+```
+cd _deps/rexglue-sdk-src            # v0.10.0 source
+git submodule update --init --recursive --depth 1
+git apply ../../tools/sdk-patches/0001-vulkan-texture-exponent-and-watch-race.patch
+cmake --preset linux-amd64 -DSDL_X11_XSCRNSAVER=OFF -DSDL_X11_XTEST=OFF
+cmake --build --preset linux-amd64-relwithdebinfo --target rexgpu-xenos rexruntime
+```
+
+The two `SDL_X11_*` switches skip X11 extensions whose headers Ubuntu's WSL
+image lacks; `libx11-xcb-dev` is the one package the build needs installed.
+Copy `out/linux-amd64/RelWithDebInfo/librexgpu-xenosrd.so` and
+`librexruntimerd.so` over the ones in `_deps/rexglue-dist/linux-amd64/lib`,
+and the GPU plugin also beside the executable in the build directory: the
+executable's runpath is `$ORIGIN`, and the build copies the plugin there, so
+that copy is the one actually loaded.
+
+Linux and the Steam Deck are still served by the Windows build through Proton
+until a native release ships with the patched libraries.
 
 When capturing a WSLg window with `xwd`, convert with `tools/xwd2png.py` or
 similar rather than `xwdtopnm`: the window gets a DirectColor visual, and
