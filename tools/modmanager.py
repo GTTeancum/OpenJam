@@ -573,7 +573,7 @@ def main():
         here = (Path(sys.executable).parent if getattr(sys, "frozen", False)
                 else Path(__file__).resolve().parents[2])
         container = modkit.find_container(here)
-        game_exe = here / "nbajam_ofe.exe"
+        game_exe = here / modkit.GAME_EXE
         if container and game_exe.is_file():
             if first_run(here, container, game_exe):
                 root = here

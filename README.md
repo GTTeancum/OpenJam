@@ -16,8 +16,8 @@ Live Arcade, and a purchased copy sits on the console's drive as a single
 signed container file. Nothing here ships game content and nothing here will
 get you a copy.
 
-Download the release, unzip it next to that container file, and run
-**NBA JAM Mod Manager.exe**. It unpacks the game, sets the folder up, and from
+On Windows, download the release, unzip it next to that container file, and
+run **NBA JAM Mod Manager.exe**. It unpacks the game, sets the folder up, and from
 then on it is the one window you need: install a mod, choose which one loads,
 play. See [RELEASE.md](RELEASE.md) for what is in the download and what it
 does.
@@ -52,22 +52,29 @@ times its own resolution), picture shape and vsync. Resolution and sharpness
 take effect the next time the game starts; the rest at once. Everything is
 kept in `nbajam_ofe.toml` beside the game.
 
-### Steam Deck and Linux
+### Linux
 
-Use the Windows release through Proton. Add **NBA JAM Mod Manager.exe** to
-Steam as a non-Steam game, set it to run with Proton under Properties >
-Compatibility, and play from there; add `nbajam_ofe.exe` the same way to go
-straight into the game. Under Proton it starts fullscreen, and on a Steam Deck
-at 1280x800, the Deck's own screen, so the picture fills it.
+There is a native Linux download. Unpack it, put your container file beside
+`nbajam.sh` and run that: the first time it unpacks the game, then starts
+it. Mods are installed from a terminal with `./mods.sh install <file.pkg>`,
+using the same code as the Mod Manager; it needs only Python 3. The readme
+inside the download has the details.
 
-This is the tested route: the game has been played through a whole match
-under Wine with vkd3d-proton and DXVK, which is what Proton runs it with, and
-it draws correctly there. It has not yet been run on a Deck itself.
+It has played whole matches, mods included, on a software Vulkan driver in
+WSL. It has not yet been tried on a range of real graphics cards. Building it
+needs a patched SDK; see BUILDING.md.
 
-A native Linux build exists and runs, but it is experimental: its menus draw
-correctly and its matches do not (unlit players, a dark upper arena, no score
-bar). It has only been tried on a software graphics driver, so whether that is
-the driver or the native build is not known yet. See BUILDING.md.
+### Steam Deck
+
+Either download works. The Windows release through Proton has the Mod
+Manager's window: add **NBA JAM Mod Manager.exe** to Steam as a non-Steam
+game, set it to run with Proton under Properties > Compatibility, and play
+from there; add `nbajam_ofe.exe` the same way to go straight into the game.
+Under Proton it starts fullscreen, and on a Steam Deck at 1280x800, the
+Deck's own screen, so the picture fills it. That route has been played
+through a whole match under Wine with vkd3d-proton and DXVK, which is what
+Proton runs it with. The native Linux download can be added the same way by
+pointing Steam at `nbajam.sh`. Neither has been run on a Deck itself yet.
 
 ## What this repository contains
 

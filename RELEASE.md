@@ -12,7 +12,10 @@ player from wherever they are published and installed through the manager.
 
 ## 1. What ships
 
-One archive, about 105 MB, that unpacks to a folder the player chooses.
+Two archives, one per system, each unpacking to a folder the player chooses.
+Each is a complete download, not an update to an earlier one.
+
+**Windows**, `OpenJam-v<version>-win64.zip`, 55 MB, about 105 MB unpacked:
 
 | File | Size | What it is |
 | --- | --- | --- |
@@ -21,8 +24,24 @@ One archive, about 105 MB, that unpacks to a folder the player chooses.
 | `rexgpu-xenosrd.dll` | 2.9 MB | The Xenos GPU translation layer. |
 | `TracyClientrd.dll` | 0.2 MB | Profiler client the runtime links against. |
 | `NBA JAM Mod Manager.exe` | 34 MB | Setup and mod installation. The only thing a player needs to open. |
-| `metadata/` | 164 KB | Achievement definitions and icons, lifted from the executable. |
-| `README.txt` | — | What to do on first run, in plain language. *(to write)* |
+| `gamecontrollerdb.txt` + licence | 0.6 MB | SDL's community controller mappings. |
+| `metadata/` | 4 KB | Achievement definitions. |
+| `README.txt` | — | Installing, mods, Steam Deck, where things go. |
+
+**Linux**, `OpenJam-v<version>-linux-x86_64.tar.gz`, 24 MB, about 80 MB
+unpacked. The programs are stripped of debugging information, and the
+graphics plugin is the one rebuilt from the patched SDK (BUILDING.md):
+
+| File | Size | What it is |
+| --- | --- | --- |
+| `nbajam_ofe` | 55 MB | The game. Finds its libraries beside it. |
+| `librexruntimerd.so` | 15 MB | ReXGlue runtime. |
+| `librexgpu-xenosrd.so` | 6 MB | The Xenos GPU translation layer, patched. |
+| `libTracyClientrd.so` | 0.5 MB | Profiler client the runtime links against. |
+| `nbajam.sh` | — | Start here: unpacks the game on the first run, then plays the chosen mod. |
+| `mods.sh` | — | Installs, lists, removes and picks mods from a terminal. |
+| `setup/` | 0.2 MB | The Mod Manager's own Python code, which both scripts use. Standard library only; PS3 packages are opened with the system's OpenSSL. |
+| `gamecontrollerdb.txt` + licence, `metadata/`, `README.txt` | | As on Windows. |
 
 Nothing else. No game data, no mods, no save files.
 
@@ -100,16 +119,26 @@ NBA JAM On Fire Edition PC/
 
 ## 5. Building a release from this repository
 
+Windows:
+
 ```
 cmake --build --preset local-relwithdebinfo    # the game
 python tools/build_manager.py                  # the manager, one file
-python tools/dlc.py stage                      # a staged folder to test with
+python tools/build_release.py --version 1.1    # out/release/OpenJam-v1.1-win64.zip
 ```
 
-`build_manager.py` puts `NBA JAM Mod Manager.exe` in the staged folder as well,
-so the staged folder is what a release looks like once the game data is in it.
-The release archive is that folder with `data/`, `default.xex`, `mods/`,
-`saves/`, `ui/`, `ui.original/`, `logs/` and `mods.list` removed.
+Linux, in WSL, after rebuilding the SDK's graphics plugin as BUILDING.md says:
+
+```
+cmake --build --preset local-linux-relwithdebinfo
+python3 tools/build_release.py --version 1.1 --platform linux
+```
+
+Each leaves the archive, the folder it was made from and a `.sha256` beside
+it in `out/release/`. Before publishing, install each one the way a player
+would: unpack it into an empty folder, add the container, set it up through
+the manager or `nbajam.sh`, install the three published mods, and play a
+match in the base game and in a mod.
 
 ## 6. Still to build
 
@@ -119,8 +148,10 @@ Nothing outstanding for a first release.
 
 ## 7. What a player needs
 
-- Windows 10 or 11, 64-bit.
-- A GPU with Direct3D 12. Tested on an AMD Radeon 780M.
+- Windows 10 or 11, 64-bit, with a GPU with Direct3D 12. Tested on an AMD
+  Radeon 780M.
+- Or 64-bit Linux with a Vulkan driver. Tested on Mesa's software driver in
+  WSL; Python 3 for installing mods.
 - About 1 GB free, plus 700 MB per mod.
 - A controller. The game reads one; the menus also take the keyboard.
 

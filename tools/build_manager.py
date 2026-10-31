@@ -21,7 +21,10 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 PORT = HERE.parent
 PARENT = PORT.parent
-GAME_ROOT = PARENT / "Root"
+# The unpacked game sits either beside the repository or inside it, as the
+# manifest's game_root says; take whichever one is there.
+GAME_ROOT = next((p for p in (PARENT / "Root", PORT / "Root") if p.is_dir()),
+                 PARENT / "Root")
 STAGE = PARENT / "NBA JAM On Fire Edition PC"
 LOGO_AST = "data/xenon/fe/bounce/parts/jamlogosmall.ast"
 NAME = "NBA JAM Mod Manager"

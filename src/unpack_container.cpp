@@ -147,7 +147,13 @@ int NbaUnpackLiveContainer(
     queue.pop();
     for (const auto& child : entry->children()) queue.push(child.get());
 
-    const fs::path out = into / fs::path(entry->path());
+    // The container names things the console's way, data\xenon\...; only
+    // Windows reads a backslash as a separator, so elsewhere every file
+    // would land flat in one folder with backslashes in its name.
+    std::string rel = entry->path();
+    std::replace(rel.begin(), rel.end(), '\\', '/');
+    while (!rel.empty() && rel.front() == '/') rel.erase(rel.begin());
+    const fs::path out = into / fs::path(rel);
     if (entry->attributes() & rex::filesystem::kFileAttributeDirectory) {
       fs::create_directories(out, ec);
       continue;

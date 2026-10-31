@@ -57,7 +57,7 @@ Codegen emits about 5.7 million lines of C++ across 158 translation units
 machine has 16 threads and 28 GB, and the generated translation units are
 large. `-j 16` was never tried, so it may well be fine.
 
-### Linux (experimental)
+### Linux
 
 The same source builds natively for Linux. The port's own code reaches the
 host only through `src/host.h`, which has a Windows and a Linux side; the

@@ -38,8 +38,11 @@ import commentary
 import frontend
 import roster_update
 
-# CREATE_NO_WINDOW: keeps a console from flashing over the window.
-NO_WINDOW = 0x08000000
+# CREATE_NO_WINDOW: keeps a console from flashing over the window. Windows
+# only; elsewhere subprocess refuses any value but 0.
+NO_WINDOW = 0x08000000 if os.name == "nt" else 0
+# The game's program beside it.
+GAME_EXE = "nbajam_ofe.exe" if os.name == "nt" else "nbajam_ofe"
 
 HERE = Path(__file__).resolve().parent
 
@@ -420,6 +423,8 @@ def install(game, source, name=None, version="", author="", say=print,
 
         # The PS3 audio config asks for data/ps3 by name.
         alias, xenon = root / "data" / "ps3", root / "data" / "xenon"
+        if xenon.is_dir() and not alias.exists() and os.name != "nt":
+            os.symlink("xenon", alias)
         if xenon.is_dir() and not alias.exists():
             try:
                 # CREATE_NO_WINDOW: without it this flashes a black console
@@ -497,6 +502,6 @@ def play(game):
     game = Path(game)
     mods = {m["id"]: m for m in installed(game)}
     root = mods.get(active_id(game), mods[BASE])["path"]
-    exe = game / "nbajam_ofe.exe"
+    exe = game / GAME_EXE
     subprocess.Popen([str(exe), '--game_data_root=%s' % root], cwd=root,
                      creationflags=NO_WINDOW)

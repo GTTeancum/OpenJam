@@ -23,12 +23,20 @@ Usage:
     python pkg_extract.py <file.pkg> <output_dir>
 """
 
+import ctypes
+import ctypes.util
 import os
 import struct
 import sys
 
-from Crypto.Cipher import AES
-from Crypto.Util import Counter
+try:
+    from Crypto.Cipher import AES
+    from Crypto.Util import Counter
+except ImportError:
+    # Not on most Linux machines or a Steam Deck, and nothing should have to
+    # be installed to add a mod there. The system's own OpenSSL library is
+    # everywhere and does AES-CTR just as well; see _LibcryptoCtr.
+    AES = Counter = None
 
 # The PS3 package key. Published in the PS3 file format documentation and
 # present in every open source PS3 package tool.
@@ -53,10 +61,70 @@ ENTRY_TYPES = {
 CHUNK = 8 * 1024 * 1024
 
 
+class _LibcryptoCtr:
+    """AES-128-CTR from the system's libcrypto, shaped like a PyCryptodome
+    cipher: `decrypt(data)` and nothing else. OpenSSL counts the counter as
+    one 128-bit big-endian number, as the package format does."""
+
+    _lib = None
+
+    @classmethod
+    def lib(cls):
+        if cls._lib is None:
+            names = [ctypes.util.find_library("crypto"), "libcrypto.so.3",
+                     "libcrypto.so.1.1", "libcrypto.so"]
+            for name in filter(None, names):
+                try:
+                    lib = ctypes.CDLL(name)
+                    break
+                except OSError:
+                    continue
+            else:
+                raise RuntimeError(
+                    "opening a PS3 package needs either the pycryptodome "
+                    "Python package or the system's OpenSSL library, and "
+                    "neither is here")
+            lib.EVP_CIPHER_CTX_new.restype = ctypes.c_void_p
+            lib.EVP_aes_128_ctr.restype = ctypes.c_void_p
+            lib.EVP_CIPHER_CTX_free.argtypes = [ctypes.c_void_p]
+            lib.EVP_DecryptInit_ex.argtypes = [
+                ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+                ctypes.c_char_p, ctypes.c_char_p]
+            lib.EVP_DecryptUpdate.argtypes = [
+                ctypes.c_void_p, ctypes.c_char_p,
+                ctypes.POINTER(ctypes.c_int), ctypes.c_char_p, ctypes.c_int]
+            cls._lib = lib
+        return cls._lib
+
+    def __init__(self, key, counter):
+        lib = self.lib()
+        self.ctx = lib.EVP_CIPHER_CTX_new()
+        iv = counter.to_bytes(16, "big")
+        if not lib.EVP_DecryptInit_ex(self.ctx, lib.EVP_aes_128_ctr(), None,
+                                      key, iv):
+            raise RuntimeError("OpenSSL would not set up AES-CTR")
+
+    def decrypt(self, data):
+        out = ctypes.create_string_buffer(len(data) + 16)
+        n = ctypes.c_int(0)
+        if not self.lib().EVP_DecryptUpdate(self.ctx, out, ctypes.byref(n),
+                                            bytes(data), len(data)):
+            raise RuntimeError("OpenSSL could not decrypt")
+        return out.raw[:n.value]
+
+    def __del__(self):
+        if self._lib is not None and getattr(self, "ctx", None):
+            self._lib.EVP_CIPHER_CTX_free(self.ctx)
+            self.ctx = None
+
+
 def ctr_cipher(riv, block_offset=0):
     """A fresh AES-CTR cipher positioned `block_offset` 16-byte blocks in."""
     start = int.from_bytes(riv, "big")
-    counter = Counter.new(128, initial_value=(start + block_offset) % (1 << 128))
+    initial = (start + block_offset) % (1 << 128)
+    if AES is None:
+        return _LibcryptoCtr(PS3_PKG_KEY, initial)
+    counter = Counter.new(128, initial_value=initial)
     return AES.new(PS3_PKG_KEY, AES.MODE_CTR, counter=counter)
 
 
