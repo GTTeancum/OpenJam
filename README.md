@@ -38,6 +38,13 @@ Hold the left trigger and press Y there and the panel wakes up: the orange box
 becomes a cursor, A loads what it is on, and the game comes back up in that
 mod about fifteen seconds later.
 
+On PlayStation controllers, use **L2 + Triangle**, the d-pad, then **Cross** to
+load or **Circle** to close. The chooser uses SDL on Windows and Linux, including
+native DualSense Edge support. Any connected controller can open it; that pad
+keeps control until it closes. Disconnecting it closes the chooser, and a
+reconnected controller works without restarting. F9 opens it from the keyboard;
+arrow keys, Enter and Escape select, load and close.
+
 ![Choosing a mod](screenshots/menu_mod_chooser.png)
 
 johnz1's 1990s edition, in play:
@@ -47,10 +54,71 @@ johnz1's 1990s edition, in play:
 ### Video settings
 
 Options > Settings has a Video tab beside Audio, Gameplay and Privileges:
-windowed or fullscreen, resolution, sharpness (the game drawn at two or three
-times its own resolution), picture shape and vsync. Resolution and sharpness
-take effect the next time the game starts; the rest at once. Everything is
+windowed or fullscreen, output resolution (up to 3840x2160), render scale (the
+game drawn at two or three times its own resolution), picture shape and vsync.
+At the normal 16:9 aspect ratio, 2x draws at 2560x1440 and 3x at 3840x2160;
+changing only the output size does not increase internal detail.
+Output resolution and render scale take effect the next time the game starts;
+the rest at once. Everything is
 kept in `nbajam_ofe.toml` beside the game.
+
+The mouse cursor is hidden in the game window. The game and its menus use
+controller input and do not need a pointer.
+
+Vulkan is the default on Windows and native Linux. Windows builds include
+D3D12 as an alternative: launch with `--renderer=d3d12`, or set
+`renderer = "d3d12"` in `nbajam_ofe.toml`. D3D12 still has a known device-removal
+failure when loading a match at higher render scales; use Vulkan for those.
+
+On Linux, Mesa llvmpipe's software Vulkan driver cannot start at 3x: its buffer
+limit is below the 4.5 GiB virtual buffer that scale requires. The Linux 2x
+smoke test reached gameplay but logged unresolved guest memory-exhaustion
+traps. Use 1x on that driver for now. Linux 3x still needs hardware Vulkan
+validation; v1.2 publication is held pending the Linux findings.
+
+### Saves and upgrades
+
+Saves stay beside the executable: `saves/base/` for the original game and
+`saves/<mod>/` for each mod. The shader cache stays in `cache/`. No
+`portable.txt` is needed. Explicit command-line path overrides still work.
+
+On the first base-game launch with no local progress, the game imports its
+legacy saves from the platform's old user-data folder (`Documents/nbajam_ofe`
+on Windows, including a redirected OneDrive Documents folder). It copies save
+packages and their `Headers` together, along with profile data and achievements,
+verifies every copied file, and then makes the complete local folder active.
+The originals are retained. Existing local progress is never overwritten or
+merged automatically, and base-game saves are never imported into a mod.
+
+For an upgrade to another game folder, copy the entire `saves/` directory
+before playing. To migrate manually from an older Windows installation, close
+the game, back up both save locations, and copy the contents of
+`Documents/nbajam_ofe/` (except `cache/`) into an empty `saves/base/` beside the
+new executable. Keep the player-ID folders and `Headers` structure intact.
+Do not put those base-game files in a mod's save folder.
+
+### Download checksums and Tracy
+
+`TracyClientrd.dll` is the [Tracy profiler](https://github.com/wolfpld/tracy)
+client used by ReXGlue. The DLL shipped in OpenJam v1.1 matches the copy in the
+official [ReXGlue v0.10.0 Windows SDK](https://github.com/rexglue/rexglue-sdk/releases/download/v0.10.0/rexglue-sdk-0.10.0-win-amd64.zip)
+under `win-amd64/bin/TracyClientrd.dll`. Its SHA-256 is:
+
+```text
+6e5afca2b13ee999fe21c33e049576d8de951b4d0e5054aafeb7c3a906227fe8
+```
+
+The reporter in [#15](https://github.com/GTTeancum/OpenJam/issues/15#issuecomment-6761159982)
+shared Kaspersky's confirmation that this detection was false and would be
+corrected. Update antivirus definitions if that old detection persists.
+
+New release packages include `SHA256SUMS.txt` for every shipped file. Packaging
+also produces a `<release>.files.sha256` sidecar for publication alongside the
+archive checksum, so the expected DLL hash is available without opening the
+archive. Rebuilt DLLs may have different hashes: use the list for that release.
+On Windows, `Get-FileHash .\TracyClientrd.dll -Algorithm SHA256` computes the
+installed file's hash. On Linux, run `sha256sum -c SHA256SUMS.txt` inside the
+unpacked release directory.
 
 ### Linux
 

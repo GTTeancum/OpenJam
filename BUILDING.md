@@ -11,6 +11,100 @@ compiled for x86-64.
 
 ## Layout
 
+### Current repository-local Windows build
+
+Keep the extracted game in `Root/` inside this repository; the manifest now
+uses `Root/default.xex`. Keep SDK sources, installations and caches in `.local/`.
+The older machine-specific notes below describe the original development setup.
+
+Use a Visual Studio Developer PowerShell with Clang, Ninja, CMake, Python and
+Git on PATH. From the repository root:
+
+```powershell
+./tools/build_windows_sdk.ps1
+# The script sets temporary/profile/cache paths for this PowerShell process.
+cmake --fresh -S . -B out/build/local-relwithdebinfo -G Ninja `
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_COMPILER=clang++ `
+  "-DCMAKE_PREFIX_PATH=$PWD/.local/sdk-dual"
+cmake --build out/build/local-relwithdebinfo -j 6
+```
+
+The script pins ReXGlue v0.10.0 and applies `tools/sdk-patches/*.patch`.
+It enables both Vulkan and D3D12, fixes Vulkan's texture exponent/watch race,
+disables the SDK's global package registration, and installs its optimized
+code generator alongside the matching runtime. It also handles libmspack links
+checked out as text files by Git for Windows. No Vulkan SDK installation is
+needed; the GPU driver must provide Vulkan support.
+
+OpenJam now defaults to Vulkan. The stock Windows SDK was built without it;
+CMake rejects that SDK for the default build. A deliberate D3D12-only developer
+build can use `-DOPENJAM_DEFAULT_RENDERER=d3d12`, but higher render scales can
+still trigger D3D12 device removal. Runtime overrides are `--renderer=vulkan`,
+`--renderer=d3d12`, and `--renderer=auto` (the SDK's platform preference).
+
+### Native render checks and save migration
+
+`tools/run_render_check.ps1` runs a bounded match-start sequence using the
+existing process-local controller harness and captures the guest render target
+as PPM. It never sends desktop input. Logs, test saves and caches go under
+`.local/runs/<Name>/`. Inspect the image's content as well as dimensions:
+
+```powershell
+./tools/run_render_check.ps1 -Renderer vulkan -Scale 3 -Width 3840 -Height 2160 `
+  -Name vulkan-4k-3x -Seconds 95 -CaptureAfterMs 80000
+```
+
+Repeating a name reuses its saves and shader cache. A fresh name checks first
+launch. These short runs verify match loading and sampled gameplay, not full
+matches, every mod, audio, or all GPU vendors. A successful watchdog run alone
+does not establish correct rendering.
+
+The save importer has a standalone test that needs no game assets or SDK:
+
+```powershell
+New-Item -ItemType Directory -Force .local/tests | Out-Null
+clang++ -std=c++23 -Isrc src/save_migration.cpp tests/save_migration_test.cpp `
+  -o .local/tests/save_migration_test.exe
+./.local/tests/save_migration_test.exe ".local/tests/migration-$([DateTime]::UtcNow.Ticks)"
+```
+
+It covers full save packages and headers, profiles, achievements, retained
+originals, existing local progress, interrupted imports and copy failures.
+The player-facing migration procedure is in [README.md](README.md#saves-and-upgrades).
+
+The controller regression harness uses SDL virtual gamepads confined to its own
+process. It opens no window and sends no host input. From the same developer
+shell and repository-local SDK setup above:
+
+```powershell
+cmake -S tests -B .local/tests/controller-build -G Ninja `
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_CXX_COMPILER=clang++ `
+  "-DCMAKE_PREFIX_PATH=$PWD/.local/sdk-dual"
+cmake --build .local/tests/controller-build
+./.local/tests/controller-build/mod_picker_input_test.exe
+```
+
+This exercises SDL discovery and button/trigger mapping, selection of a second
+controller, exclusive ownership, disconnect/reconnect, and the actual chooser's
+open, navigation, load, close and guest-input gating. It uses stub mod entries
+and intercepts process relaunches; it does not install or launch a real mod.
+Physical DualSense Edge USB/Bluetooth testing remains a hardware check.
+
+For the release checksum checks:
+
+```powershell
+$env:PYTHONDONTWRITEBYTECODE = '1'
+python tests/test_release_checksums.py
+```
+
+The mouse cursor is always hidden in the game window. Native guest captures
+do not include the OS pointer, so actual visibility requires manual verification.
+The packaging test verifies file and archive checksums against the actual ZIP
+contents, including exclusion of private fixture data, and confines its files
+to `.local/tests/`.
+
+### Original development layout (historical)
+
 | Path | What it is |
 | --- | --- |
 | `D:\Programming\GitHub\NBA JAM On Fire Edition\Root` | Extracted XBLA package. Game data root. |
@@ -59,66 +153,64 @@ large. `-j 16` was never tried, so it may well be fine.
 
 ### Linux
 
-The same source builds natively for Linux. The port's own code reaches the
-host only through `src/host.h`, which has a Windows and a Linux side; the
-recompiled game needs nothing of the sort. It has been built and run in WSL
-(Ubuntu, clang 21) against the ReXGlue v0.10.0 `linux-amd64` SDK release
-unpacked to `_deps/rexglue-dist/linux-amd64`:
+Build the same pinned and patched ReXGlue source used on Windows, with Vulkan
+enabled. Sources, the SDK install, caches and temporary files stay in `.local/`:
 
-```
-cmake --preset local-linux-relwithdebinfo
-cmake --build --preset local-linux-relwithdebinfo
-```
-
-`local-linux-relwithdebinfo` is a user preset that inherits `linux-base`,
-points `CMAKE_PREFIX_PATH` at that SDK and uses the system `clang`/`clang++`
-rather than the `clang-20` the shared preset names. The runtime's own
-libraries are not copied beside the executable yet, so a run needs
-`LD_LIBRARY_PATH=_deps/rexglue-dist/linux-amd64/lib`.
-
-What differs from Windows: mod swaps `exec` the process in place rather than
-starting a second one; the mod chooser reads the pad through SDL; the null
-page is opened with `mprotect`; the stall watchdog and the developer stack
-walks are Windows-only (`src/watchdog_posix.cpp` stands in).
-
-State: it boots, plays sound and draws menus and matches correctly at 60 fps
-on WSL's software Vulkan driver (llvmpipe) - with the SDK patch below. The
-stock v0.10.0 SDK draws matches wrong on Vulkan (players' limbs black, upper
-arena dark, score bar and scorer's-table digits missing): its SPIR-V shader
-translator reads a texture's exponent adjust from the wrong fetch-constant
-word (word 4, where the LOD bias lives, instead of word 3), so every texture
-with a LOD bias is scaled by 2^(garbage). The D3D12 translator reads the right
-word, which is why Windows was never affected.
-
-`tools/sdk-patches/0001-vulkan-texture-exponent-and-watch-race.patch` fixes
-that in the SDK source (and closes a small window in the texture cache where
-a CPU write landing between a texture's upload and its watch registration
-left the texture stale). To use it, the SDK's `rexgpu-xenos` library has to
-be rebuilt from source in WSL:
-
-```
-cd _deps/rexglue-sdk-src            # v0.10.0 source
-git submodule update --init --recursive --depth 1
-git apply ../../tools/sdk-patches/0001-vulkan-texture-exponent-and-watch-race.patch
-cmake --preset linux-amd64 -DSDL_X11_XSCRNSAVER=OFF -DSDL_X11_XTEST=OFF
-cmake --build --preset linux-amd64-relwithdebinfo --target rexgpu-xenos rexruntime
+```sh
+bash tools/build_linux_sdk.sh 6
+export TMPDIR="$PWD/.local/linux/tmp"
+export XDG_CACHE_HOME="$PWD/.local/linux/cache"
+export XDG_CONFIG_HOME="$PWD/.local/linux/config"
+export XDG_DATA_HOME="$PWD/.local/linux/data"
+export PYTHONDONTWRITEBYTECODE=1
+cmake -S . -B out/build/local-linux-relwithdebinfo -G Ninja \
+  -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+  -DCMAKE_PREFIX_PATH="$PWD/.local/sdk-linux-built"
+cmake --build out/build/local-linux-relwithdebinfo -j 5
+python3 tools/build_release.py --version 1.2 --platform linux
 ```
 
-The two `SDL_X11_*` switches skip X11 extensions whose headers Ubuntu's WSL
-image lacks; `libx11-xcb-dev` is the one package the build needs installed.
-Copy `out/linux-amd64/RelWithDebInfo/librexgpu-xenosrd.so` and
-`librexruntimerd.so` over the ones in `_deps/rexglue-dist/linux-amd64/lib`,
-and the GPU plugin also beside the executable in the build directory: the
-executable's runpath is `$ORIGIN`, and the build copies the plugin there, so
-that copy is the one actually loaded.
+The host needs Clang with C++23 support, CMake, Ninja, Python and the SDK's
+SDL/X11/Wayland development dependencies. No system installation is performed
+by the script. The release packager takes all three shared libraries from this
+matching SDK/build and strips the staged copies. The executable uses `$ORIGIN`
+to find its runtime libraries; when running directly from the build tree, set
+`LD_LIBRARY_PATH="$PWD/.local/sdk-linux-built/lib"`.
 
-Linux and the Steam Deck are still served by the Windows build through Proton
-until a native release ships with the patched libraries.
+The SDK patches correct Vulkan texture exponent adjustment and a texture-cache
+CPU-write race, disable user package registry writes, and install the optimized
+code generator. The texture correction matters for player lighting, the upper
+arena and scoreboard. Do not substitute an unpatched graphics plugin.
 
-When capturing a WSLg window with `xwd`, convert with `tools/xwd2png.py` or
-similar rather than `xwdtopnm`: the window gets a DirectColor visual, and
-`xwdtopnm` swaps red and blue for it, which looks exactly like a rendering
-fault.
+For Linux controller checks, configure `tests/` with the same SDK prefix and
+run `mod_picker_input_test`. The save importer test also builds with Clang on
+Linux. Native rendering checks use `NBAJAM_INPUT_SCRIPT` for process-local
+controller input and `NBAJAM_CAPTURE_PATH` / `NBAJAM_CAPTURE_AFTER_MS` for a PPM
+capture of the guest render target. Use a bounded process lifetime and inspect
+the captured content; no desktop input or desktop capture is necessary.
+
+Linux mod swaps replace the process with `exec`. The gameplay stall watchdog
+and developer stack walks remain Windows-only (`src/watchdog_posix.cpp` is the
+Linux implementation). See the v1.2 release notes for the actual validation
+environment and limits; a software Vulkan check is not a hardware performance
+measurement.
+
+The v1.2 Linux release was built with Clang 21 and linked against Ubuntu 24.04's
+math library to avoid glibc 2.43 math-symbol requirements introduced by the WSL
+host. On a newer build host, prepare that repository-local link input first:
+
+```sh
+bash tools/prepare_linux_compat.sh
+export OPENJAM_LINUX_LIBRARY_PATH="$PWD/.local/linux-compat"
+bash tools/build_linux_sdk.sh 6
+# Also add this to the game's cmake configure command:
+# -DCMAKE_EXE_LINKER_FLAGS="-L$OPENJAM_LINUX_LIBRARY_PATH"
+```
+
+This downloads a hash-pinned Ubuntu package and extracts only `libm.so.6` into
+`.local/`; it does not install or ship a system library. Check ELF version needs
+with `readelf --version-info` before publishing builds from a newer toolchain.
 
 ## Running
 

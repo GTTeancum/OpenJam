@@ -18,7 +18,7 @@
 //     the line under the tabs are supplied, and the table is not read past
 //     its end.
 //   - A tab's rows (sub_822E2308) are counted first (sub_822DC750, which
-//     says none for a tab it does not know, and is told five) and then built
+//     says none for a tab it does not know, and is given the row count) and then built
 //     by a switch with no case for 8. At the switch's common exit, tab 8 gets
 //     its rows, built through the same calls the game's own builders make: an
 //     `id`, a `control` of 0 (a list of choices), a `name`, and `canedit`.
@@ -162,7 +162,7 @@ void NbaVideoTabName(PPCRegister& r6, PPCRegister& r28) {
 
 void NbaVideoTabMessage(PPCRegister& r6, PPCRegister& r28) {
   if (r28.u32 == kVideoTab) {
-    r6.u64 = Text("Resolution and sharpness change the next time the game starts.");
+    r6.u64 = Text("Output size and render scale apply after restart. Render scale increases detail.");
   }
 }
 

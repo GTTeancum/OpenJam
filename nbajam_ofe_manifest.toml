@@ -3,9 +3,9 @@
 [project]
 name = "nbajam_ofe"
 sdk_version = "0.10.0"
-game_root = "../Root"
+game_root = "Root"
 
 [entrypoint]
-file_path = "../Root/default.xex"
+file_path = "Root/default.xex"
 out_directory_path = "generated/default"
 includes = ["nbajam_ofe_config.toml", "nbajam_ofe_gaps.toml", "nbajam_ofe_hooks.toml"]

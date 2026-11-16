@@ -20,12 +20,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PORT = HERE.parent
-PARENT = PORT.parent
-# The unpacked game sits either beside the repository or inside it, as the
-# manifest's game_root says; take whichever one is there.
-GAME_ROOT = next((p for p in (PARENT / "Root", PORT / "Root") if p.is_dir()),
-                 PARENT / "Root")
-STAGE = PARENT / "NBA JAM On Fire Edition PC"
+GAME_ROOT = PORT / "Root"
+STAGE = PORT / "out" / "stage"
 LOGO_AST = "data/xenon/fe/bounce/parts/jamlogosmall.ast"
 NAME = "NBA JAM Mod Manager"
 
@@ -69,7 +65,9 @@ def make_icon(out):
 def main():
     build = PORT / "out" / "manager"
     build.mkdir(parents=True, exist_ok=True)
-    icon = make_icon(build / "manager.ico")
+    icon = PORT / "res" / "nbajam_ofe.ico"
+    if not icon.is_file():
+        icon = make_icon(build / "manager.ico")
 
     argv = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--onefile",
             "--windowed", "--name", NAME,

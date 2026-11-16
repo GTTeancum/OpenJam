@@ -50,10 +50,12 @@
 #include <imgui.h>
 
 #include <rex/logging.h>
+#include <rex/cvar.h>
 #include <rex/ui/imgui_dialog.h>
 #include <rex/ui/imgui_drawer.h>
 
 #include "host_pad.h"
+#include "host.h"
 #include "mod_picker.h"
 #include "mod_swap.h"
 #include "window_title.h"
@@ -231,16 +233,16 @@ struct Press {
   bool wait = false;    // B, or Escape
 };
 
-Press JustPressed() {
-  static uint16_t was = 0;
+Press JustPressed(NbaHostPads& pads, uint16_t& was) {
   Press p;
-  uint16_t now = 0;
-  uint8_t trigger = 0;
-  if (NbaHostPad(&now, &trigger)) {
-    const uint16_t down = uint16_t(now & ~was);
-    was = now;
+  NbaHostPadState state;
+  if (pads.Poll(state, false)) {
+    const uint16_t down = uint16_t(state.buttons & ~was);
+    was = state.buttons;
     p.go = (down & 0x1000) != 0;        // XINPUT_GAMEPAD_A
     p.wait = (down & 0x2000) != 0;      // XINPUT_GAMEPAD_B
+  } else {
+    was = 0;
   }
   if (ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
       ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false)) {
@@ -252,7 +254,9 @@ Press JustPressed() {
 
 class WayOut : public rex::ui::ImGuiDialog {
  public:
-  explicit WayOut(rex::ui::ImGuiDrawer* drawer) : ImGuiDialog(drawer) {}
+  explicit WayOut(rex::ui::ImGuiDrawer* drawer)
+      : ImGuiDialog(drawer),
+        pads_(NbaPathFromUtf8(rex::cvar::Query<std::string>("hid_mappings_file"))) {}
 
  protected:
   void OnDraw(ImGuiIO& io) override {
@@ -263,7 +267,7 @@ class WayOut : public rex::ui::ImGuiDialog {
     if (!shown_) {
       shown_ = true;
       since_ = ImGui::GetTime();
-      JustPressed();            // swallow whatever was already held
+      JustPressed(pads_, was_);  // swallow whatever was already held
     }
 
     const float s = (std::min)(io.DisplaySize.x / 1280.0f,
@@ -320,7 +324,7 @@ class WayOut : public rex::ui::ImGuiDialog {
                   "B to keep waiting", left > 0 ? left : 0);
     dl->AddText(f, mid, ImVec2(tl.x + pad, y), kQuiet, foot);
 
-    const Press p = JustPressed();
+    const Press p = JustPressed(pads_, was_);
     if (p.wait) {
       g_stuck.store(false, std::memory_order_relaxed);
       REXLOG_INFO("stuck: the player chose to keep waiting");
@@ -343,6 +347,8 @@ class WayOut : public rex::ui::ImGuiDialog {
   }
 
  private:
+  NbaHostPads pads_;
+  uint16_t was_ = 0;
   bool shown_ = false;
   double since_ = 0.0;
 };

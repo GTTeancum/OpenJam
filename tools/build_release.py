@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Package a release: the port, the manager, and instructions. No game data.
 
-    python tools/build_release.py --version 1.1                    (Windows)
-    python3 tools/build_release.py --version 1.1 --platform linux  (in WSL)
+    python tools/build_release.py --version 1.2                    (Windows)
+    python3 tools/build_release.py --version 1.2 --platform linux  (in WSL)
 
 Leaves `out/release/OpenJam-v<version>-win64.zip` (or
 `OpenJam-v<version>-linux-x86_64.tar.gz`) and the folder it was made from, so
@@ -23,6 +23,7 @@ executable.
 import argparse
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -32,7 +33,6 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PORT = HERE.parent
-PARENT = PORT.parent
 BUILD = PORT / "out" / "build" / "local-relwithdebinfo"
 MANAGER = PORT / "out" / "manager" / "dist" / "NBA JAM Mod Manager.exe"
 LINUX_BUILD = PORT / "out" / "build" / "local-linux-relwithdebinfo"
@@ -40,7 +40,7 @@ LINUX_BUILD = PORT / "out" / "build" / "local-linux-relwithdebinfo"
 # taken from beside the game, where the build copies it: it has to be the one
 # rebuilt with tools/sdk-patches applied (see BUILDING.md), or matches draw
 # unlit with no scoreboard.
-LINUX_SDK = PORT / "_deps" / "rexglue-dist" / "linux-amd64" / "lib"
+LINUX_SDK = PORT / ".local" / "sdk-linux-built" / "lib"
 OUT = PORT / "out" / "release"
 
 # Everything the download holds, and nothing else.
@@ -95,8 +95,8 @@ Your own copy of NBA JAM: On Fire Edition, bought on Xbox Live Arcade. On the
 console's drive it is a single file with a long name made of numbers and
 letters, and no file extension. It is about 850 MB.
 
-You also need Windows 10 or 11, 64-bit, and a graphics card that supports
-Direct3D 12. Anything from the last ten years will do. Nothing else has to be
+You also need Windows 10 or 11, 64-bit, and a graphics card with a Vulkan driver.
+Vulkan is the default renderer. Nothing else has to be
 installed - the libraries the game needs are in this folder already.
 
 INSTALLING
@@ -123,9 +123,9 @@ UPGRADING
 ---------
 
 Set the new version up in a new folder as above, then install your mods
-again from their .pkg files. Your progress in the base game carries over by
-itself (see WHERE THINGS GO). To keep your progress in mods, copy the saves
-folder from the old folder into the new one before installing them.
+again from their .pkg files. Copy the entire saves folder from the old game
+folder into the new one before playing. Older base-game saves in Documents
+are imported automatically when no local progress exists (see WHERE THINGS GO).
 
 MODS
 ----
@@ -142,6 +142,11 @@ Hold the left trigger and press Y there to open the list, move with the d-pad,
 and press A to load one. The game restarts into it, which takes about fifteen
 seconds. Every mod keeps its own saves, records and unlocked players, so
 switching between them never mixes anything up.
+
+On PlayStation controllers, use L2 + Triangle, the d-pad, then Cross to load or
+Circle to close. The chooser uses SDL, including native DualSense Edge support.
+The controller that opens it keeps control until it closes. Reconnecting a
+controller does not require restarting. F9, arrow keys, Enter and Escape also work.
 
 STEAM DECK AND LINUX
 --------------------
@@ -161,11 +166,42 @@ and nothing here talks to the internet.
 
     data/, default.xex      the game, unpacked from your copy
     mods/                   one folder per mod
-    saves/                  your mods' saves, one folder per mod
+    saves/base/             the original game's saves
+    saves/<mod>/            one separate save folder per mod
+    cache/                  shader cache
     logs/                   what the game wrote down, if something goes wrong
 
-The one exception is the base game's saves, which go in your Documents
-folder under nbajam_ofe, with a cache that makes later launches quicker.
+No portable.txt is needed. On the first base-game launch with no local saves,
+old saves from Documents/nbajam_ofe are copied and verified automatically,
+including their Headers, profile and achievements. The original files remain
+in Documents for recovery. Existing local saves are never overwritten.
+
+To import manually: close the game, back up both locations, and copy the
+contents of Documents/nbajam_ofe (except cache) into an empty saves/base here.
+Keep the player-ID folders and Headers intact. Never put base saves in a mod.
+
+VIDEO
+------
+
+Vulkan is the default graphics backend. Options > Settings > Video offers
+output sizes up to 3840x2160 and 1x/2x/3x render scale. At 16:9, 2x draws the
+game at 2560x1440 and 3x at 3840x2160. Output size alone does not add detail.
+Restart after changing output size or render scale.
+
+The mouse cursor is hidden in the game window; the game and its menus use
+controller input and do not need a pointer.
+
+For troubleshooting, --renderer=d3d12 selects the alternate Windows backend.
+D3D12 still has a known match-loading crash at higher render scales.
+
+VERIFYING THE DOWNLOAD
+----------------------
+
+SHA256SUMS.txt lists the hash of every shipped file, including TracyClientrd.dll
+(the ReXGlue profiler client). The same list is provided as a .files.sha256
+alongside the release archive. Use the list for your version: rebuilt DLLs can
+have different hashes. In PowerShell, Get-FileHash .\\TracyClientrd.dll -Algorithm
+SHA256 shows the installed DLL's hash.
 
 IF SOMETHING GOES WRONG
 -----------------------
@@ -198,9 +234,12 @@ Your own copy of NBA JAM: On Fire Edition, bought on Xbox Live Arcade. On the
 console's drive it is a single file with a long name made of numbers and
 letters, and no file extension. It is about 850 MB.
 
-You also need 64-bit Linux on an x86 PC and a graphics driver with Vulkan
-(the standard Mesa drivers for AMD and Intel, or NVIDIA's own). Nothing else
-has to be installed - the libraries the game needs are in this folder.
+You also need 64-bit Linux on an x86-64-v2 CPU and a graphics driver with Vulkan
+(the standard Mesa drivers for AMD and Intel, or NVIDIA's own). The ReXGlue
+libraries are included; the system still supplies its Vulkan loader, C/C++
+runtime, display and audio libraries. This build requires glibc 2.38 or newer
+and libstdc++ providing GLIBCXX_3.4.32 (GCC 13.2 or newer), as in Ubuntu 24.04.
+See the release notes for the tested system.
 
 INSTALLING
 ----------
@@ -245,8 +284,11 @@ the d-pad, and press A to load one. The game restarts into it, which takes
 about fifteen seconds. Every mod keeps its own saves, records and unlocked
 players.
 
-mods.sh needs Python 3, which almost every Linux system and the Steam Deck
-already have. Nothing else has to be installed.
+On PlayStation controllers, use L2 + Triangle, the d-pad, then Cross to load or
+Circle to close. The chooser uses SDL and stays with the controller that opened
+it. Disconnecting closes the chooser; reconnecting needs no restart.
+
+mods.sh needs Python 3 and OpenSSL (or Python's pycryptodome package).
 
 STEAM DECK
 ----------
@@ -264,12 +306,32 @@ internet.
 
     data/, default.xex      the game, unpacked from your copy
     mods/                   one folder per mod
-    saves/                  your mods' saves, one folder per mod
+    saves/base/             the original game's saves
+    saves/<mod>/            one separate save folder per mod
+    cache/                  shader cache
     ui/                     the game's typefaces, for the port's own screens
     logs/                   what the game wrote down, if something goes wrong
 
-The one exception is the base game's saves, which go in
-~/.local/share/nbajam_ofe, with a cache that makes later launches quicker.
+No portable.txt is needed. Legacy saves from $XDG_DATA_HOME/nbajam_ofe (normally
+~/.local/share/nbajam_ofe) are copied and verified on the first base-game launch
+with no local progress.
+Original files are retained and existing local progress is never overwritten.
+When upgrading, copy the whole saves folder before playing.
+
+VIDEO
+-----
+
+Vulkan is the default renderer. Options > Settings > Video separates output
+resolution (up to 3840x2160) from render scale (1x/2x/3x). At 16:9, 2x draws
+2560x1440 and 3x draws 3840x2160. Restart after changing these settings.
+The mouse cursor is hidden in the game window.
+
+3x needs a 4.5 GiB virtual GPU buffer. The Mesa llvmpipe software driver used
+for Linux validation caps buffers below 4 GiB and cannot start at 3x. The 2x
+test reached gameplay but also logged guest memory-exhaustion traps, which
+remain unresolved. Use 1x on that driver for now. If needed, reset resolution_scale,
+draw_resolution_scale_x and draw_resolution_scale_y to 1 in nbajam_ofe.toml.
+Linux 3x still needs validation on a hardware Vulkan driver.
 
 The typefaces are unpacked only if the machine has Python 3 with Pillow;
 without them the port's own screens use a plain face and nothing else
@@ -281,9 +343,12 @@ IF SOMETHING GOES WRONG
 The newest file in logs/ says what happened, and crash_stack.txt appears
 beside the game if it falls over. Both are worth attaching to a bug report.
 
-This is the first native Linux release. It has been played through whole
-matches on a software graphics driver but not yet on a range of real
-graphics cards, so reports from real hardware are very welcome.
+See the v1.2 release notes for validation and known limitations. Software
+Vulkan smoke checks do not establish performance on a range of graphics cards.
+
+SHA256SUMS.txt lists every shipped file's SHA-256 hash. Run
+"sha256sum -c SHA256SUMS.txt" in this folder to check them. The same list is
+provided as a .files.sha256 beside the release archive.
 
 ---
 
@@ -305,7 +370,9 @@ def show(folder, target, what):
 
 
 def fresh(name):
-    folder = OUT / name
+    folder = (OUT / name).resolve()
+    if folder.parent != OUT.resolve():
+        raise ValueError("release folder must be directly inside out/release")
     if folder.exists():
         shutil.rmtree(folder)
     folder.mkdir(parents=True)
@@ -314,13 +381,38 @@ def fresh(name):
 
 def copy_metadata(folder):
     meta = PORT / "metadata"
-    if meta.is_dir():
-        shutil.copytree(meta, folder / "metadata")
+    # Extracted achievement icons are private game assets, even when present
+    # in the developer's metadata directory. Ship definitions only.
+    if (meta / "achievements.toml").is_file():
+        (folder / "metadata").mkdir()
+        shutil.copy2(meta / "achievements.toml", folder / "metadata" / "achievements.toml")
         show(folder, "metadata", "achievements")
 
 
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def write_file_checksums(folder, name):
+    """Hash the staged files after copying/stripping, before archiving."""
+    manifest = folder / "SHA256SUMS.txt"
+    lines = []
+    for path in sorted(folder.rglob("*")):
+        if path.is_file() and path != manifest:
+            lines.append("%s  %s\n" % (
+                sha256_file(path), path.relative_to(folder).as_posix()))
+    content = "".join(lines)
+    manifest.write_text(content, encoding="utf-8", newline="\n")
+    (OUT / (name + ".files.sha256")).write_text(
+        content, encoding="utf-8", newline="\n")
+
+
 def write_checksum(archive, name):
-    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    digest = sha256_file(archive)
     print("\n%s" % archive)
     print("  %.0f MB" % (archive.stat().st_size / 1048576))
     print("  sha256 %s" % digest)
@@ -349,8 +441,9 @@ def windows(version):
     copy_metadata(folder)
     (folder / "README.txt").write_text(
         README.format(version=version, repo=REPO).replace("\n", "\r\n"),
-        encoding="utf-8")
+        encoding="utf-8", newline="")
     show(folder, "README.txt", "instructions")
+    write_file_checksums(folder, name)
 
     archive = OUT / (name + ".zip")
     if archive.exists():
@@ -371,11 +464,27 @@ def linux(version):
     if missing_from(LINUX_SHIPPED,
                     "build with the local-linux-relwithdebinfo preset first"):
         return 1
+    # Do not silently raise the release's runtime requirements when a build
+    # machine upgrades its system libraries. Check every shipped ELF object.
+    for target, src, _what in LINUX_SHIPPED:
+        if target not in LINUX_STRIPPED:
+            continue
+        versions = subprocess.check_output(
+            ["readelf", "--version-info", str(src)], text=True)
+        for family, ceiling in (("GLIBC", (2, 38)), ("GLIBCXX", (3, 4, 32)),
+                                ("CXXABI", (1, 3, 13))):
+            required = [tuple(map(int, v.split("."))) for v in
+                        re.findall(r"\b" + family + r"_([0-9.]+)", versions)]
+            if required and max(required) > ceiling:
+                raise RuntimeError(f"{target} requires {family}_{'.'.join(map(str, max(required)))}; "
+                                   "rebuild against the release baseline (see BUILDING.md)")
     name = "OpenJam-v%s-linux-x86_64" % version
     folder = fresh(name)
     for target, src, what in LINUX_SHIPPED:
         dst = folder / target
         shutil.copyfile(src, dst)
+        if target.endswith(".sh"):
+            dst.write_text(dst.read_text(encoding="utf-8"), encoding="utf-8", newline="\n")
         if target in LINUX_STRIPPED:
             subprocess.run(["strip", "--strip-debug", str(dst)], check=True)
         os.chmod(dst, 0o755 if target in LINUX_EXECUTABLE else 0o644)
@@ -389,6 +498,7 @@ def linux(version):
     (folder / "README.txt").write_text(
         LINUX_README.format(version=version, repo=REPO), encoding="utf-8")
     show(folder, "README.txt", "instructions")
+    write_file_checksums(folder, name)
 
     archive = OUT / (name + ".tar.gz")
     if archive.exists():
@@ -414,7 +524,7 @@ def linux(version):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--version", default="1.0")
+    ap.add_argument("--version", required=True)
     ap.add_argument("--platform", choices=("windows", "linux"),
                     default="windows" if os.name == "nt" else "linux")
     args = ap.parse_args()

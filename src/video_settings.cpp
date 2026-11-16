@@ -4,13 +4,13 @@
 // The runtime has the settings; what it lacks is a way for a player to reach
 // them that is not a text file or the F4 developer editor. This is the model
 // behind the Video tab src/video_tab.cpp adds to the game's own Settings
-// screen: five lines, each a short list of choices, each written to
+// screen: each line is a short list of choices, written to
 // nbajam_ofe.toml the moment it changes so the next launch starts the way
 // this one was left.
 //
 // Two kinds of setting. Some the runtime reads every frame, and those are
 // applied on the spot: windowed or fullscreen, the picture's shape, and
-// vsync. The others are read once while the runtime sets itself up - the
+// vsync. The others are read once during setup: the
 // resolution, which the game also takes as the video mode it renders for, and
 // the sharpness, which sizes the GPU's render targets. Changing those under a
 // running game is not a smaller version of the effect; it is a different and
@@ -46,7 +46,7 @@ struct Size {
 // 1280x800 is a Steam Deck's screen. The game draws itself at whatever shape
 // it is given, so that one fills the Deck with no bars and nothing stretched.
 constexpr Size kSizes[] = {{1280, 720}, {1280, 800}, {1600, 900},
-                           {1920, 1080}, {2560, 1440}};
+                           {1920, 1080}, {2560, 1440}, {3840, 2160}};
 constexpr int kScales[] = {1, 2, 3};
 
 std::filesystem::path SettingsFile() {
@@ -136,7 +136,7 @@ std::vector<NbaVideoRow> NbaVideoRows() {
   rows[kDisplay].choices = {"WINDOW", "FULLSCREEN"};
   rows[kDisplay].at = rex::cvar::Query<bool>("fullscreen") ? 1 : 0;
 
-  rows[kWindow].name = "RESOLUTION";
+  rows[kWindow].name = "OUTPUT RESOLUTION";
   for (const Size& s : kSizes) {
     char buf[32];
     std::snprintf(buf, sizeof(buf), "%d X %d", s.w, s.h);
@@ -145,8 +145,8 @@ std::vector<NbaVideoRow> NbaVideoRows() {
   rows[kWindow].at = g_size_next;
   rows[kWindow].restart = true;
 
-  rows[kSharpness].name = "SHARPNESS";
-  rows[kSharpness].choices = {"ORIGINAL", "HIGH (2X)", "ULTRA (3X)"};
+  rows[kSharpness].name = "RENDER SCALE";
+  rows[kSharpness].choices = {"ORIGINAL (1X)", "HIGH (2X)", "ULTRA (3X)"};
   rows[kSharpness].at = g_scale_next;
   rows[kSharpness].restart = true;
 
@@ -157,6 +157,7 @@ std::vector<NbaVideoRow> NbaVideoRows() {
   rows[kVsync].name = "VSYNC";
   rows[kVsync].choices = {"ON", "OFF"};
   rows[kVsync].at = rex::cvar::Query<bool>("vsync") ? 0 : 1;
+
   return rows;
 }
 
@@ -199,7 +200,12 @@ void Set(int row, int at) {
     }
     case kSharpness: {
       g_scale_next = clamp(at, int(std::size(kScales)));
-      WriteKeys({{"resolution_scale", std::to_string(kScales[g_scale_next])}});
+      const std::string scale = std::to_string(kScales[g_scale_next]);
+      // Explicit per-axis settings take precedence in the SDK. Update all
+      // three so selecting a scale also replaces any earlier axis overrides.
+      WriteKeys({{"resolution_scale", scale},
+                 {"draw_resolution_scale_x", scale},
+                 {"draw_resolution_scale_y", scale}});
       break;
     }
     case kShape: {

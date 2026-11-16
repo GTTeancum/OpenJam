@@ -24,7 +24,7 @@ param(
     [ValidateSet("local-debug", "local-relwithdebinfo", "local-release")]
     [string]$Config = "local-relwithdebinfo",
 
-    [string]$GameRoot = "D:\Programming\GitHub\NBA JAM On Fire Edition\Root",
+    [string]$GameRoot = (Join-Path $PSScriptRoot 'Root'),
 
     # The SDK default is fullscreen; this script inverts it.
     [switch]$Fullscreen,

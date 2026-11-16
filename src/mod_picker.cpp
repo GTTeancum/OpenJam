@@ -68,9 +68,9 @@
 // rest of the front end is unaffected because it reads the pad a different
 // way, which is why every other button works and this one did not.
 //
-// So the chooser asks Windows directly. That is independent of anything the
-// runtime does with the pad, and it is why the trigger works here while the
-// game itself never sees it at that call.
+// The chooser reads SDL gamepads directly on every platform, independently
+// of guest input gating. This includes native PlayStation controllers that
+// Windows' XInput-only path could not see.
 //
 // While it is open the game must not also be taking the input, or moving down
 // the list would move down the menu as well. The runtime has a switch for
@@ -103,6 +103,7 @@
 #include <string>
 #include <vector>
 
+#include <rex/cvar.h>
 #include <rex/input/input_system.h>
 #include <rex/logging.h>
 #include <rex/ui/imgui_dialog.h>
@@ -245,7 +246,7 @@ void Settle(ImFontAtlas* atlas, Picture& p) {
 rex::input::InputSystem* g_input = nullptr;
 
 // Whether the controller is being read here rather than through the game. It
-// is, whenever Windows can see one.
+// is, whenever SDL can see one.
 std::atomic<bool> g_own_pad{false};
 
 std::mutex g_lock;
@@ -379,7 +380,9 @@ float DPad(ImDrawList* dl, float x, float mid, float r) {
 
 class Picker : public rex::ui::ImGuiDialog {
  public:
-  explicit Picker(rex::ui::ImGuiDrawer* drawer) : ImGuiDialog(drawer) {}
+  explicit Picker(rex::ui::ImGuiDrawer* drawer)
+      : ImGuiDialog(drawer),
+        pads_(NbaPathFromUtf8(rex::cvar::Query<std::string>("hid_mappings_file"))) {}
 
  protected:
   void OnDraw(ImGuiIO& io) override {
@@ -613,22 +616,34 @@ class Picker : public rex::ui::ImGuiDialog {
 
  private:
   // The controller, read here rather than taken from the game. Same rules as
-  // the guest-side path below: the trigger and Y open it, the trigger keeps
-  // it open, and letting go puts it away.
-  static void Pad() {
+  // the guest-side path below: LT+Y toggles it; A loads and B closes it.
+  void Pad() {
     // A test drives the chooser through the guest instead, and on a machine
     // with a controller plugged in the two would fight, so it can say so.
     static const bool ignore = NbaEnvOn("NBAJAM_IGNORE_HOST_PAD");
-    uint16_t buttons = 0;
-    uint8_t trigger = 0;
-    if (ignore || !NbaHostPad(&buttons, &trigger)) {
-      g_own_pad.store(false, std::memory_order_relaxed);
+    NbaHostPadState state;
+    const bool captured = g_own_pad.load(std::memory_order_relaxed) &&
+                          g_open.load(std::memory_order_relaxed);
+    const bool connected = !ignore && pads_.Poll(state, captured);
+    if (!warned_ && !pads_.error().empty()) {
+      REXLOG_WARN("mods: {}", pads_.error());
+      warned_ = true;
+    }
+    if (!connected) {
+      if (g_own_pad.exchange(false, std::memory_order_relaxed)) {
+        // Clear the old button edges and release the guest when its pad goes.
+        NbaModPickerFeed(0, 0);
+        Shut();
+        logged_pad_ = 0;
+      }
       return;
     }
-    if (!g_own_pad.exchange(true, std::memory_order_relaxed)) {
-      REXLOG_INFO("mods: the chooser is reading the controller itself");
+    g_own_pad.store(true, std::memory_order_relaxed);
+    if (logged_pad_ != state.id) {
+      REXLOG_INFO("mods: SDL controller '{}' (id {})", state.name, state.id);
+      logged_pad_ = state.id;
     }
-    NbaModPickerFeed(buttons, trigger);
+    NbaModPickerFeed(state.buttons, state.left_trigger);
   }
 
   // The same moves from the keyboard. Worth having on its own account, and it
@@ -654,6 +669,9 @@ class Picker : public rex::ui::ImGuiDialog {
       Load();
     }
   }
+  NbaHostPads pads_;
+  uint32_t logged_pad_ = 0;
+  bool warned_ = false;
 };
 
 std::filesystem::path ExeDir() { return NbaExeDir(); }
@@ -752,7 +770,7 @@ void NbaModPickerCreate(rex::ui::ImGuiDrawer* drawer) {
 
 bool NbaModPickerPad(uint16_t buttons, uint8_t left_trigger) {
   // Two things can offer a pad: the frame loop, with the controller read
-  // straight from Windows, and src/scripted_input.cpp with whatever the guest
+  // through SDL, and src/scripted_input.cpp with whatever the guest
   // was handed, which is how a test drives it with no controller about. Only
   // one of them gets listened to, or the one holding nothing would undo the
   // one holding something on the very next frame.

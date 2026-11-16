@@ -1,7 +1,8 @@
 # Release manifest
 
 What a released build contains, what the person running it has to provide, and
-what is still missing before it can go out.
+what is still missing before it can go out. Sizes below are approximate; the release assets and
+checksum lists describe the exact bytes shipped.
 
 The shape of it: **we ship code, they bring the game.** Nothing in the release
 is EA's. The player points it at the Xbox Live Arcade copy they already own,
@@ -27,6 +28,7 @@ Each is a complete download, not an update to an earlier one.
 | `gamecontrollerdb.txt` + licence | 0.6 MB | SDL's community controller mappings. |
 | `metadata/` | 4 KB | Achievement definitions. |
 | `README.txt` | — | Installing, mods, Steam Deck, where things go. |
+| `SHA256SUMS.txt` | — | SHA-256 of each shipped file, including the DLLs. |
 
 **Linux**, `OpenJam-v<version>-linux-x86_64.tar.gz`, 24 MB, about 80 MB
 unpacked. The programs are stripped of debugging information, and the
@@ -43,7 +45,8 @@ graphics plugin is the one rebuilt from the patched SDK (BUILDING.md):
 | `setup/` | 0.2 MB | The Mod Manager's own Python code, which both scripts use. Standard library only; PS3 packages are opened with the system's OpenSSL. |
 | `gamecontrollerdb.txt` + licence, `metadata/`, `README.txt` | | As on Windows. |
 
-Nothing else. No game data, no mods, no save files.
+Nothing else. No game data, no mods, no save files. Achievement icons extracted
+from the game are explicitly excluded; only `metadata/achievements.toml` ships.
 
 ## 2. What the player provides
 
@@ -112,7 +115,7 @@ NBA JAM On Fire Edition PC/
     ui/                            typefaces and button art
     ui.original/                   the front end as it arrived
     mods/<mod>/                    one folder per mod
-    saves/                         the base game's saves
+    saves/base/                    the base game's saves
     saves/<mod>/                   one folder per mod
     mods.list, saves.path          what the game reads to find the rest
 ```
@@ -122,20 +125,23 @@ NBA JAM On Fire Edition PC/
 Windows:
 
 ```
-cmake --build --preset local-relwithdebinfo    # the game
+cmake --build out/build/local-relwithdebinfo    # the game
 python tools/build_manager.py                  # the manager, one file
-python tools/build_release.py --version 1.1    # out/release/OpenJam-v1.1-win64.zip
+python tools/build_release.py --version 1.2    # out/release/OpenJam-v1.2-win64.zip
 ```
 
-Linux, in WSL, after rebuilding the SDK's graphics plugin as BUILDING.md says:
+Linux, in WSL or a native shell, after building the patched SDK as BUILDING.md says:
 
 ```
-cmake --build --preset local-linux-relwithdebinfo
-python3 tools/build_release.py --version 1.1 --platform linux
+cmake --build out/build/local-linux-relwithdebinfo
+python3 tools/build_release.py --version 1.2 --platform linux
 ```
 
-Each leaves the archive, the folder it was made from and a `.sha256` beside
-it in `out/release/`. Before publishing, install each one the way a player
+Each leaves the archive, the folder it was made from, an archive `.sha256`,
+and a `.files.sha256` list in `out/release/`. Publish both checksum files with
+the archive; the per-file list is also included as `SHA256SUMS.txt` in both
+platforms' archives. Hashes describe the final copied/stripped files.
+Before publishing, install each one the way a player
 would: unpack it into an empty folder, add the container, set it up through
 the manager or `nbajam.sh`, install the three published mods, and play a
 match in the base game and in a mod.
@@ -148,7 +154,7 @@ Nothing outstanding for a first release.
 
 ## 7. What a player needs
 
-- Windows 10 or 11, 64-bit, with a GPU with Direct3D 12. Tested on an AMD
+- Windows 10 or 11, 64-bit, with a Vulkan-capable GPU. Tested on an AMD
   Radeon 780M.
 - Or 64-bit Linux with a Vulkan driver. Tested on Mesa's software driver in
   WSL; Python 3 for installing mods.

@@ -1,5 +1,6 @@
 # Build output
 out/
+/.local/
 *.log
 
 # Recompiled sources: ~166 MB and 5.7M lines, fully reproducible from the XEX
@@ -14,6 +15,9 @@ CMakeUserPresets.json
 # The game data itself is not ours to distribute.
 /Root/
 /assets/
+/saves/
+/cache/
+/nbajam_ofe.toml
 
 # Achievement icons are extracted from the XEX; regenerate with
 #   rexglue init --project-name nbajam_ofe --xex-path <xex> achievements <xex> metadata

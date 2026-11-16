@@ -26,9 +26,9 @@
 //
 //   - a mod added tomorrow needs no change here and no entry anywhere. Its
 //     root is built with the file in it, and its saves follow.
-//   - a game root that is not one of ours, the extracted game itself for
-//     instance, says nothing and keeps the plain save location. That is the
-//     right answer rather than a missing case: there is no mod to separate.
+//   - a root with no marker uses the base save location selected by the app:
+//     saves/base beside the executable, or an explicit user-data override.
+//     src/save_migration.cpp imports legacy Documents saves for the base game.
 
 #include "mod_saves.h"
 

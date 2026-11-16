@@ -1,0 +1,38 @@
+diff --git a/cmake/rexglue_install.cmake b/cmake/rexglue_install.cmake
+--- a/cmake/rexglue_install.cmake
++++ b/cmake/rexglue_install.cmake
+@@ -54,9 +54,9 @@ install(TARGETS ${REXGLUE_INSTALL_TARGETS}
+     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+ )
+
+-# A Debug codegen tool runs an order of magnitude slower, so only Release ships.
++# Both optimized configurations can provide the codegen tool for a local SDK.
+ install(TARGETS rexglue
+     EXPORT rexglueTargets
+     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+-    CONFIGURATIONS Release
++    CONFIGURATIONS Release RelWithDebInfo
+ )
+diff --git a/cmake/rexglueConfig.cmake.in b/cmake/rexglueConfig.cmake.in
+--- a/cmake/rexglueConfig.cmake.in
++++ b/cmake/rexglueConfig.cmake.in
+@@ -35,10 +35,15 @@ endif()
+
+ include("${CMAKE_CURRENT_LIST_DIR}/rexglueTargets.cmake")
+
+-# Only Release rexglue is installed, so every consumer config has to reach it.
++# Prefer Release when installed; otherwise use the optimized local build.
+ if(TARGET rex::rexglue)
++    get_target_property(_codegen_configs rex::rexglue IMPORTED_CONFIGURATIONS)
++    list(GET _codegen_configs 0 _codegen_config)
++    if("RELEASE" IN_LIST _codegen_configs)
++        set(_codegen_config RELEASE)
++    endif()
+     set_target_properties(rex::rexglue PROPERTIES
+-        MAP_IMPORTED_CONFIG_DEBUG Release
+-        MAP_IMPORTED_CONFIG_RELWITHDEBINFO Release
+-        MAP_IMPORTED_CONFIG_MINSIZEREL Release)
++        MAP_IMPORTED_CONFIG_DEBUG "${_codegen_config}"
++        MAP_IMPORTED_CONFIG_RELWITHDEBINFO "${_codegen_config}"
++        MAP_IMPORTED_CONFIG_MINSIZEREL "${_codegen_config}")
+ endif()

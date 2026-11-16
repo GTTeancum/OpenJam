@@ -9,9 +9,12 @@
 
 #include "config_repair.h"
 #include "guest_base.h"
+#include "graphics_backend.h"
 #include "host.h"
 #include "mod_picker.h"
 #include "null_page.h"
+#include "render_capture.h"
+#include "save_migration.h"
 #include "unpack_container.h"
 #include "video_settings.h"
 #include "mod_saves.h"
@@ -149,6 +152,7 @@ class NbajamOfeApp : public rex::ReXApp {
     // the front end, so the log is the only way to confirm it without playing.
     REXLOG_INFO("license_mask = {} ({})", REXCVAR_GET(license_mask),
                 REXCVAR_GET(license_mask) & 1u ? "full version" : "TRIAL");
+    NbaConfigureGraphicsBackend(config);
     rex::ReXApp::OnPreSetup(config);
   }
 
@@ -190,8 +194,24 @@ class NbajamOfeApp : public rex::ReXApp {
       REXLOG_INFO("update: patching the game from {}",
                   paths.update_data_root.string());
     }
-    paths.user_data_root =
-        NbaSaveRootFor(paths.user_data_root, paths.game_data_root);
+    // Base saves are portable without a marker file. Import the SDK's old
+    // Documents location only for the base game, never into a mod's roster.
+    if (rex::cvar::Query<std::string>("user_data_root").empty() && !home.empty()) {
+      const auto local = home / "saves" / "base";
+      if (NbaSavePath(paths.game_data_root).empty()) {
+        const auto migrated = NbaImportLegacySaves(paths.user_data_root, local);
+        if (migrated == NbaSaveMigration::kImported) {
+          legacy_save_import_ = paths.user_data_root;
+        }
+      }
+      paths.user_data_root = local;
+    }
+    paths.user_data_root = NbaSaveRootFor(paths.user_data_root, paths.game_data_root);
+    // The SDK resolves this before OnConfigurePaths; changing user_data_root
+    // alone would leave its cache in Documents.
+    if (rex::cvar::Query<std::string>("cache_root").empty() && !home.empty()) {
+      paths.cache_root = home / "cache";
+    }
     // And this is the only place that knows which root won, which is what a
     // swap needs to find the list of mods and its place in it.
     NbaModSwapUseRoot(paths.game_data_root);
@@ -200,6 +220,9 @@ class NbajamOfeApp : public rex::ReXApp {
 
   // The window is named after the executable unless something says otherwise.
   void OnPostSetup() override {
+    if (auto* graphics = runtime()->graphics_system()) {
+      NbaRenderCaptureStart(imgui_drawer(), graphics->presenter());
+    }
     // Where the guest's memory went is the first thing worth knowing about a
     // launch that goes wrong; see src/guest_base.h.
     NbaReportGuestBase();
@@ -220,10 +243,14 @@ class NbajamOfeApp : public rex::ReXApp {
     });
     // Said here rather than where it is decided, because paths are resolved
     // before logging exists.
-    REXLOG_INFO("saves: {}{}", user_data_root().string(),
-                NbaSavePath(game_data_root()).empty()
-                    ? " (shared; this root names no mod)" : "");
+    REXLOG_INFO("saves: {}", user_data_root().string());
+    if (!legacy_save_import_.empty()) {
+      REXLOG_INFO("saves: imported from {}; original files retained",
+                  legacy_save_import_.string());
+    }
     if (window()) {
+      // The game and its menus use controller input; no pointer is needed.
+      window()->SetCursorVisibility(rex::ui::Window::CursorVisibility::kHidden);
       window()->SetTitle(NbaWindowTitle());
       // A swap replaces the process, and a new process starts behind the one
       // it replaced unless it is told otherwise. See src/mod_swap.cpp.
@@ -249,4 +276,7 @@ class NbajamOfeApp : public rex::ReXApp {
     NbaWatchdogCreate(drawer);
     rex::ReXApp::OnCreateDialogs(drawer);
   }
+
+ private:
+  std::filesystem::path legacy_save_import_;
 };

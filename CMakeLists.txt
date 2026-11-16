@@ -15,6 +15,15 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 include(generated/rexglue.cmake)
 
+set(OPENJAM_DEFAULT_RENDERER "vulkan" CACHE STRING "Default graphics backend")
+set_property(CACHE OPENJAM_DEFAULT_RENDERER PROPERTY STRINGS vulkan d3d12 auto)
+if(NOT OPENJAM_DEFAULT_RENDERER MATCHES "^(vulkan|d3d12|auto)$")
+    message(FATAL_ERROR "OPENJAM_DEFAULT_RENDERER must be vulkan, d3d12, or auto")
+endif()
+if(OPENJAM_DEFAULT_RENDERER STREQUAL "vulkan" AND NOT REXGLUE_USE_VULKAN)
+    message(FATAL_ERROR "OpenJam defaults to Vulkan. Build the patched Vulkan SDK described in BUILDING.md, or explicitly select -DOPENJAM_DEFAULT_RENDERER=d3d12.")
+endif()
+
 # Sources
 option(REXPORT_CRASH_REPORT "Resolve guest call stacks on access violations" ON)
 option(REXPORT_GUEST_PROFILER "Sampling profiler for locating guest code" ON)
@@ -34,6 +43,7 @@ set(NBAJAMOFE_SOURCES
     src/unpack_container.cpp
     src/asset_fallback.cpp
     src/mod_saves.cpp
+    src/save_migration.cpp
     src/mod_swap.cpp
     src/mod_picker.cpp
     src/host_pad.cpp
@@ -42,6 +52,8 @@ set(NBAJAMOFE_SOURCES
     src/save_lookup.cpp
     src/video_settings.cpp
     src/video_tab.cpp
+    src/render_capture.cpp
+    src/graphics_backend.cpp
 )
 
 # The watchdog reads stuck threads through Windows' thread and exception
@@ -78,6 +90,8 @@ endif()
 # it and the game comes up with no graphics backend. `rexglue init` does not
 # emit this.
 rexglue_setup_target(nbajam_ofe GPU_PLUGINS xenos)
+target_compile_definitions(nbajam_ofe PRIVATE
+    OPENJAM_DEFAULT_RENDERER="${OPENJAM_DEFAULT_RENDERER}")
 
 # ReXGlue v0.10.0 translates vpkuwus/vpkuhus by writing the destination
 # register one element at a time while still reading the sources, which is
