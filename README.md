@@ -70,11 +70,12 @@ D3D12 as an alternative: launch with `--renderer=d3d12`, or set
 `renderer = "d3d12"` in `nbajam_ofe.toml`. D3D12 still has a known device-removal
 failure when loading a match at higher render scales; use Vulkan for those.
 
-On Linux, Mesa llvmpipe's software Vulkan driver cannot start at 3x: its buffer
-limit is below the 4.5 GiB virtual buffer that scale requires. The Linux 2x
-smoke test reached gameplay but logged unresolved guest memory-exhaustion
-traps. Use 1x on that driver for now. Linux 3x still needs hardware Vulkan
-validation; v1.2 publication is held pending the Linux findings.
+**On Linux, 2x render scale is recommended. 3x is experimental and may crash.**
+Mesa llvmpipe's software Vulkan driver cannot start at 3x: its buffer limit is
+below the 4.5 GiB virtual buffer that scale requires. The Linux 2x smoke test
+reached gameplay but logged unresolved guest memory-exhaustion traps. Linux
+3x still needs hardware Vulkan validation. See the
+[v1.2 release notes](RELEASE_NOTES_v1.2.md) for the full test results and limits.
 
 ### Saves and upgrades
 

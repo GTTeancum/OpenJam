@@ -2,8 +2,8 @@
 
 Higher render resolutions, portable saves and broader controller support.
 
-**Unreleased candidate.** Publication is held because Linux validation found
-the unresolved issues described below.
+**Linux: 2× render scale is recommended. 3× is experimental and may crash.**
+See the validation notes below for the Linux test results and known limits.
 
 ## Changes
 
@@ -74,9 +74,10 @@ and libstdc++ with GLIBCXX_3.4.32 (GCC 13.2 or newer), as provided by Ubuntu
 - D3D12 still has a known match-loading failure at higher render scales;
   Vulkan is the release default. `--renderer=d3d12` remains available for
   troubleshooting on Windows.
-- **Linux software-renderer limit:** Mesa llvmpipe 26.0.8 cannot start at 3×.
+- **Linux 3× is experimental and may crash; 2× is recommended.**
+  Mesa llvmpipe 26.0.8 cannot start at 3×.
   The renderer needs a 4.5 GiB virtual buffer, beyond this driver's buffer
-  limit of just under 4 GiB. Use 1× on llvmpipe for now. Linux 3× has not been
+  limit of just under 4 GiB. Linux 3× has not been
   validated on a hardware Vulkan driver. This is a buffer-address-space limit,
   not a statement that 4.5 GiB of physical VRAM must always be resident.
 - **Unresolved Linux 2× diagnostics:** multiple runs attempted to write

@@ -326,11 +326,12 @@ resolution (up to 3840x2160) from render scale (1x/2x/3x). At 16:9, 2x draws
 2560x1440 and 3x draws 3840x2160. Restart after changing these settings.
 The mouse cursor is hidden in the game window.
 
+On Linux, 2x render scale is recommended. 3x is experimental and may crash.
 3x needs a 4.5 GiB virtual GPU buffer. The Mesa llvmpipe software driver used
 for Linux validation caps buffers below 4 GiB and cannot start at 3x. The 2x
 test reached gameplay but also logged guest memory-exhaustion traps, which
-remain unresolved. Use 1x on that driver for now. If needed, reset resolution_scale,
-draw_resolution_scale_x and draw_resolution_scale_y to 1 in nbajam_ofe.toml.
+remain unresolved. To recover from a 3x startup failure, reset resolution_scale,
+draw_resolution_scale_x and draw_resolution_scale_y to 2 in nbajam_ofe.toml.
 Linux 3x still needs validation on a hardware Vulkan driver.
 
 The typefaces are unpacked only if the machine has Python 3 with Pillow;
