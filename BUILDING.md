@@ -35,6 +35,8 @@ disables the SDK's global package registration, and installs its optimized
 code generator alongside the matching runtime. It also handles libmspack links
 checked out as text files by Git for Windows. No Vulkan SDK installation is
 needed; the GPU driver must provide Vulkan support.
+Use the rebuilt runtime: OpenJam's Match Display option needs the added
+SDL window refresh-rate query.
 
 OpenJam now defaults to Vulkan. The stock Windows SDK was built without it;
 CMake rejects that SDK for the default build. A deliberate D3D12-only developer
@@ -182,6 +184,7 @@ The SDK patches correct Vulkan texture exponent adjustment and a texture-cache
 CPU-write race, disable user package registry writes, and install the optimized
 code generator. The texture correction matters for player lighting, the upper
 arena and scoreboard. Do not substitute an unpatched graphics plugin.
+The matching rebuilt runtime also provides OpenJam's Match Display query.
 
 For Linux controller checks, configure `tests/` with the same SDK prefix and
 run `mod_picker_input_test`. The save importer test also builds with Clang on

@@ -55,12 +55,20 @@ johnz1's 1990s edition, in play:
 
 Options > Settings has a Video tab beside Audio, Gameplay and Privileges:
 windowed or fullscreen, output resolution (up to 3840x2160), render scale (the
-game drawn at two or three times its own resolution), picture shape and vsync.
+game drawn at two or three times its own resolution), picture shape, vsync
+and refresh rate.
 At the normal 16:9 aspect ratio, 2x draws at 2560x1440 and 3x at 3840x2160;
 changing only the output size does not increase internal detail.
-Output resolution and render scale take effect the next time the game starts;
-the rest at once. Everything is
-kept in `nbajam_ofe.toml` beside the game.
+Output resolution, render scale and refresh rate take effect the next time
+the game starts; the rest apply at once. Settings are kept in
+`nbajam_ofe.toml` beside the game.
+
+**Refresh Rate** defaults to **Original**, which keeps the existing timing.
+**Match Display** uses the display the game opens on, if its current rate is
+supported; otherwise it keeps the original timing. This is not an FPS unlock
+and it does not change your monitor's settings. Restart after switching
+displays if you want the game to pick up the new display's rate. An explicit
+`video_mode_refresh_rate` override takes precedence.
 
 The mouse cursor is hidden in the game window. The game and its menus use
 controller input and do not need a pointer.

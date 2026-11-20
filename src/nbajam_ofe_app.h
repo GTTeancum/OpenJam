@@ -5,7 +5,10 @@
 #pragma once
 
 #include <filesystem>
+#include <functional>
+#include <optional>
 #include <system_error>
+#include <utility>
 
 #include "config_repair.h"
 #include "guest_base.h"
@@ -216,6 +219,13 @@ class NbajamOfeApp : public rex::ReXApp {
     // swap needs to find the list of mods and its place in it.
     NbaModSwapUseRoot(paths.game_data_root);
     rex::ReXApp::OnConfigurePaths(paths);
+  }
+
+  std::optional<rex::PathConfig> OnFinalizePaths(
+      const rex::PathConfig& defaults, std::function<void(rex::PathConfig)> resume) override {
+    // The window is open on its display, but the guest has not sampled its mode.
+    NbaConfigureDisplayRefresh(window());
+    return rex::ReXApp::OnFinalizePaths(defaults, std::move(resume));
   }
 
   // The window is named after the executable unless something says otherwise.

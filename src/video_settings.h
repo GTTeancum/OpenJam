@@ -8,6 +8,10 @@
 #include <string>
 #include <vector>
 
+namespace rex::ui {
+class Window;
+}
+
 // One line of the Video tab: what it is called, what it can be, and which
 // of those it is now. `restart` is set on the lines that only take effect at
 // the next launch.
@@ -35,6 +39,9 @@ void NbaVideoUseUiThread(std::function<void(std::function<void()>)> run);
 
 // Whether anything chosen since launch is waiting for a restart.
 bool NbaVideoRestartPending();
+
+// Sample the open window on the UI thread, before the guest GPU starts.
+void NbaConfigureDisplayRefresh(const rex::ui::Window* window);
 
 // Whether this is a Windows build running under Wine or Proton - which is
 // what a Steam Deck is.

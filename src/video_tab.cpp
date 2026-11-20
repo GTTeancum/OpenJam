@@ -162,7 +162,7 @@ void NbaVideoTabName(PPCRegister& r6, PPCRegister& r28) {
 
 void NbaVideoTabMessage(PPCRegister& r6, PPCRegister& r28) {
   if (r28.u32 == kVideoTab) {
-    r6.u64 = Text("Output size and render scale apply after restart. Render scale increases detail.");
+    r6.u64 = Text("Output resolution, render scale and refresh rate apply after restart.");
   }
 }
 

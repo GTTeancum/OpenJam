@@ -10,12 +10,9 @@
 //
 // Two kinds of setting. Some the runtime reads every frame, and those are
 // applied on the spot: windowed or fullscreen, the picture's shape, and
-// vsync. The others are read once during setup: the
-// resolution, which the game also takes as the video mode it renders for, and
-// the sharpness, which sizes the GPU's render targets. Changing those under a
-// running game is not a smaller version of the effect; it is a different and
-// worse one. So they are only written to the file, the tab says they apply
-// the next time the game starts, and the running game is left alone.
+// vsync. Output resolution, render scale and refresh rate are read at
+// startup. The tab remembers those choices for the next launch without
+// changing the running game's resolution, render targets or refresh rate.
 //
 // Only these keys are touched in the file. Everything else in it - a
 // hand-written line, a key the F4 editor saved - stays as it was.
@@ -28,17 +25,32 @@
 #include <windows.h>
 #endif
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
-#include <functional>
 #include <fstream>
+#include <functional>
+#include <iterator>
 #include <mutex>
-#include <sstream>
+#include <optional>
+#include <string_view>
+#include <system_error>
+#include <utility>
 
 #include <rex/cvar.h>
 #include <rex/logging.h>
+#include <rex/ui/window_sdl.h>
+#include <toml++/toml.hpp>
+
+REXCVAR_DEFINE_BOOL(match_display_refresh, false, "Display",
+                    "Match the game's refresh rate to the display at startup")
+    .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
 
 namespace {
+
+constexpr auto kMatchDisplayRefresh = "match_display_refresh";
+constexpr auto kGuestRefreshRate = "video_mode_refresh_rate";
 
 struct Size {
   int w, h;
@@ -54,39 +66,123 @@ std::filesystem::path SettingsFile() {
   return dir.empty() ? dir : dir / "nbajam_ofe.toml";
 }
 
-// Rewrite `key = value` lines for the given keys, adding any that are not
-// there, and leave every other line alone.
-void WriteKeys(const std::vector<std::pair<std::string, std::string>>& keys) {
+constexpr std::string_view kUtf8Bom = "\xef\xbb\xbf";
+
+// TOML source positions count Unicode code points, not bytes. The parser
+// already validated UTF-8; skip continuation bytes when advancing a column.
+std::optional<size_t> ByteOffset(std::string_view text, toml::source_position pos) {
+  if (!pos) return std::nullopt;
+  size_t offset = text.starts_with(kUtf8Bom) ? kUtf8Bom.size() : 0;
+  for (toml::source_index line = 1; line < pos.line; ++line) {
+    offset = text.find('\n', offset);
+    if (offset == std::string_view::npos) return std::nullopt;
+    ++offset;
+  }
+  for (toml::source_index column = 1; column < pos.column; ++column) {
+    if (offset == text.size() || text[offset] == '\n') return std::nullopt;
+    ++offset;
+    while (offset < text.size() && (static_cast<unsigned char>(text[offset]) & 0xc0) == 0x80) {
+      ++offset;
+    }
+  }
+  return offset;
+}
+
+// Replace only the values of existing top-level keys, using parsed positions
+// so comments, nested tables and multiline values for other keys stay intact.
+// Put new keys before any table headers; they are not members of a table.
+bool WriteKeys(const std::vector<std::pair<std::string, std::string>>& keys) {
   const std::filesystem::path file = SettingsFile();
-  if (file.empty()) return;
-  std::vector<std::string> lines;
+  if (file.empty()) return false;
+
+  std::string text;
   {
     std::ifstream in(file, std::ios::binary);
-    std::string line;
-    while (std::getline(in, line)) {
-      if (!line.empty() && line.back() == '\r') line.pop_back();
-      lines.push_back(line);
+    if (in) {
+      char block[4096];
+      do {
+        in.read(block, sizeof(block));
+        text.append(block, static_cast<size_t>(in.gcount()));
+      } while (in);
+      if (in.bad() || !in.eof()) {
+        REXLOG_WARN("video: could not read {}", file.string());
+        return false;
+      }
+    } else {
+      std::error_code ec;
+      if (std::filesystem::exists(file, ec) || ec) {
+        REXLOG_WARN("video: could not read {}", file.string());
+        return false;
+      }
     }
   }
-  for (const auto& [key, value] : keys) {
-    bool found = false;
-    for (std::string& line : lines) {
-      const auto start = line.find_first_not_of(" \t");
-      if (start == std::string::npos || line.compare(start, key.size(), key) != 0)
+
+  struct Edit {
+    size_t begin, end;
+    std::string_view value;
+  };
+  std::vector<Edit> edits;
+  std::string prefix;
+  const auto first_newline = text.find('\n');
+  const bool crlf = first_newline != std::string::npos && first_newline > 0 &&
+                    text[first_newline - 1] == '\r';
+  const char* newline = crlf ? "\r\n" : "\n";
+  try {
+    const auto config = toml::parse(text);
+    for (const auto& [key, value] : keys) {
+      const auto* old = config.get(key);
+      if (!old) {
+        prefix += key + " = " + value + newline;
         continue;
-      const auto after = line.find_first_not_of(" \t", start + key.size());
-      if (after == std::string::npos || line[after] != '=') continue;
-      line = key + " = " + value;
-      found = true;
+      }
+      const auto start = ByteOffset(text, old->source().begin);
+      const auto end = ByteOffset(text, old->source().end);
+      if (!old->is_value() || !start || !end || *start >= *end) {
+        REXLOG_WARN("video: cannot replace the setting '{}' in {}", key, file.string());
+        return false;
+      }
+      edits.push_back({*start, *end, value});
     }
-    if (!found) lines.push_back(key + " = " + value);
+  } catch (const toml::parse_error&) {
+    REXLOG_WARN("video: not modifying malformed settings in {}", file.string());
+    return false;
   }
+
+  // Replace from the end so later edits don't move earlier source offsets.
+  std::sort(edits.begin(), edits.end(), [](const Edit& a, const Edit& b) {
+    return a.begin > b.begin;
+  });
+  for (const auto& edit : edits) {
+    text.replace(edit.begin, edit.end - edit.begin, edit.value);
+  }
+  if (!prefix.empty()) {
+    const size_t bom = text.starts_with(kUtf8Bom) ? kUtf8Bom.size() : 0;
+    size_t insert_at = bom;
+    // Keep leading comments, including the SDK header used by config_repair.
+    while (insert_at < text.size()) {
+      const size_t end = text.find('\n', insert_at);
+      const size_t line_end = end == std::string::npos ? text.size() : end;
+      const auto line = std::string_view(text).substr(insert_at, line_end - insert_at);
+      const size_t content = line.find_first_not_of(" \t\r");
+      if (content != std::string_view::npos && line[content] != '#') break;
+      if (end == std::string::npos) {
+        text += newline;
+        insert_at = text.size();
+        break;
+      }
+      insert_at = end + 1;
+    }
+    text.insert(insert_at, prefix);
+  }
+
   std::ofstream out(file, std::ios::binary | std::ios::trunc);
+  out << text;
+  out.close();
   if (!out) {
     REXLOG_WARN("video: could not write {}", file.string());
-    return;
+    return false;
   }
-  for (const std::string& line : lines) out << line << '\n';
+  return true;
 }
 
 // What the restart-only lines were when the game started, and what has been
@@ -95,6 +191,7 @@ std::mutex g_lock;
 bool g_taken = false;
 int g_size_running = 0, g_size_next = 0;
 int g_scale_running = 0, g_scale_next = 0;
+bool g_refresh_running = false;
 
 int SizeIndex(int w, int h) {
   if (w <= 0 || h <= 0) return 0;  // the runtime's default is 1280x720
@@ -121,7 +218,7 @@ void Take() {
       ScaleIndex(rex::cvar::Query<int32_t>("resolution_scale"));
 }
 
-enum Row { kDisplay, kWindow, kSharpness, kShape, kVsync, kRows };
+enum Row { kDisplay, kWindow, kSharpness, kShape, kVsync, kRefreshRate, kRows };
 
 const char* Bool(bool b) { return b ? "true" : "false"; }
 
@@ -157,6 +254,11 @@ std::vector<NbaVideoRow> NbaVideoRows() {
   rows[kVsync].name = "VSYNC";
   rows[kVsync].choices = {"ON", "OFF"};
   rows[kVsync].at = rex::cvar::Query<bool>("vsync") ? 0 : 1;
+
+  rows[kRefreshRate].name = "REFRESH RATE";
+  rows[kRefreshRate].choices = {"ORIGINAL", "MATCH DISPLAY"};
+  rows[kRefreshRate].at = rex::cvar::Query<bool>(kMatchDisplayRefresh) ? 1 : 0;
+  rows[kRefreshRate].restart = true;
 
   return rows;
 }
@@ -220,6 +322,15 @@ void Set(int row, int at) {
       WriteKeys({{"vsync", Bool(on)}});
       break;
     }
+    case kRefreshRate: {
+      const char* match = Bool(at == 1);
+      if (WriteKeys({{kMatchDisplayRefresh, match}})) {
+        // This preference is only used at startup. Also updating the CVar
+        // keeps the F4 editor from saving the previously selected value.
+        rex::cvar::SetFlagByName(kMatchDisplayRefresh, match);
+      }
+      break;
+    }
     default:
       break;
   }
@@ -241,6 +352,7 @@ void NbaVideoReset() {
   Set(kSharpness, 0);
   Set(kShape, 0);
   Set(kVsync, 0);
+  Set(kRefreshRate, 0);
 }
 
 void NbaVideoUseUiThread(std::function<void(std::function<void()>)> run) {
@@ -251,7 +363,41 @@ void NbaVideoUseUiThread(std::function<void(std::function<void()>)> run) {
 bool NbaVideoRestartPending() {
   std::lock_guard<std::mutex> guard(g_lock);
   Take();
-  return g_size_next != g_size_running || g_scale_next != g_scale_running;
+  return g_size_next != g_size_running || g_scale_next != g_scale_running ||
+         rex::cvar::Query<bool>(kMatchDisplayRefresh) != g_refresh_running;
+}
+
+void NbaConfigureDisplayRefresh(const rex::ui::Window* window) {
+  g_refresh_running = rex::cvar::Query<bool>(kMatchDisplayRefresh);
+  if (!g_refresh_running) return;
+
+  const auto* rate = rex::cvar::GetFlagInfo(kGuestRefreshRate);
+  if (!rate) return;
+  if (rate->source != rex::cvar::Source::kDefault) {
+    REXLOG_INFO("video: keeping the explicitly configured guest refresh rate");
+    return;
+  }
+
+  // Window::Create on this SDK always makes a WindowSDL. Query inside the
+  // runtime that owns it, not the executable's potentially separate SDL.
+  const double refresh = window
+      ? static_cast<const rex::ui::WindowSDL*>(window)->GetCurrentDisplayRefreshRate()
+      : 0.0;
+  if (!std::isfinite(refresh) || refresh < rate->constraints.min.value_or(24.0) ||
+      refresh > rate->constraints.max.value_or(240.0)) {
+    REXLOG_WARN("video: current display refresh rate unavailable or unsupported; keeping Original");
+    return;
+  }
+
+  // The SDK uses this one rate for the mode reported to the guest and the
+  // emulated VBlank timer. Both must agree for the game's swap timing.
+  auto* entry = const_cast<rex::cvar::FlagEntry*>(rate);
+  if (entry->setter(std::to_string(refresh))) {
+    // Like the controller mapping path, this is a launch-local default.
+    // F4 must save the preference, not this display's measured value.
+    entry->default_value = entry->getter();
+    REXLOG_INFO("video: matching current display at {:.3f} Hz", refresh);
+  }
 }
 
 bool NbaRunningUnderWine() {
