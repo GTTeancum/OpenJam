@@ -1,0 +1,20 @@
+Backport ReXGlue #601 (8104221, gtguerreiro-max) to the pinned SDK source location.
+Original upstream logic from Xenia Canary 24f90c0efc.
+
+diff --git a/src/graphics/vulkan/render_target_cache.cpp b/src/graphics/vulkan/render_target_cache.cpp
+index 0298f06..cc238c4 100644
+--- a/src/graphics/vulkan/render_target_cache.cpp
++++ b/src/graphics/vulkan/render_target_cache.cpp
+@@ -3734,6 +3734,12 @@ VkShaderModule VulkanRenderTargetCache::GetTransferShader(TransferShaderKey key)
+         }
+       }
+     }
++    // A depth source has no depth texture in a stencil-bit transfer.
++    // Use its stencil value directly so the per-bit pass can discard.
++    if (packed == spv::NoResult && mode.output == TransferOutput::kStencilBit &&
++        source_stencil[0] != spv::NoResult) {
++      packed = source_stencil[0];
++    }
+     switch (mode.output) {
+       case TransferOutput::kColor: {
+         // Unless a special path was taken, unpack the raw 32bpp value into the
