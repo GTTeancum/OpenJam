@@ -1,5 +1,8 @@
 # OpenJam
 
+> [!IMPORTANT]
+> OpenJam will not receive any further updates.
+
 A native PC port of **NBA JAM: On Fire Edition** (Xbox 360, XBLA, 2011), built
 with [ReXGlue](https://github.com/rexglue/rexglue-sdk). Not an emulator: the
 original PowerPC code is statically recompiled to C++ ahead of time and compiled
