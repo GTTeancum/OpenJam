@@ -1,0 +1,98 @@
+--- a/include/rex/cvar.h
++++ b/include/rex/cvar.h
+@@ -173,6 +173,7 @@
+   std::string default_value;
+   bool is_debug_only = false;
+   Source source = Source::kDefault;
++  bool preserve_explicit_config_default = false;
+ };
+
+ std::vector<FlagEntry>& GetRegistry();
+@@ -294,6 +295,12 @@
+
+   FlagRegistrar&& lifecycle(Lifecycle lc) && {
+     apply_([=](FlagEntry& entry) { entry.lifecycle = lc; });
++    return std::move(*this);
++  }
++
++  // Some settings distinguish an absent key from an explicit default value.
++  FlagRegistrar&& preserve_explicit_config_default() && {
++    apply_([](FlagEntry& entry) { entry.preserve_explicit_config_default = true; });
+     return std::move(*this);
+   }
+
+--- a/src/core/cvar.cpp
++++ b/src/core/cvar.cpp
+@@ -535,11 +535,18 @@
+   return result;
+ }
+
++namespace {
++bool ShouldSerialize(const FlagEntry& entry) {
++  return entry.getter() != entry.default_value ||
++         (entry.preserve_explicit_config_default && entry.source == Source::kConfig);
++}
++}  // namespace
++
+ std::string SerializeToTOML() {
+   std::lock_guard lock(GetRegistryMutex());
+   std::string result;
+   for (const auto& entry : GetRegistryStorage()) {
+-    if (entry.getter() != entry.default_value) {
++    if (ShouldSerialize(entry)) {
+       if (entry.type == FlagType::String) {
+         result += entry.name + " = \"" + entry.getter() + "\"\n";
+       } else {
+@@ -554,7 +561,7 @@
+   std::lock_guard lock(GetRegistryMutex());
+   std::string result;
+   for (const auto& entry : GetRegistryStorage()) {
+-    if (entry.category == category && entry.getter() != entry.default_value) {
++    if (entry.category == category && ShouldSerialize(entry)) {
+       if (entry.type == FlagType::String) {
+         result += entry.name + " = \"" + entry.getter() + "\"\n";
+       } else {
+--- a/src/ui/window.cpp
++++ b/src/ui/window.cpp
+@@ -63,6 +63,8 @@
+ REXCVAR_DEFINE_DOUBLE(video_mode_refresh_rate, 60.0, "Display",
+                       "Guest video mode refresh rate in Hz")
+     .range(24.0, 240.0)
++    // An explicit 60 Hz overrides OpenJam's Match Display setting.
++    .preserve_explicit_config_default()
+     .lifecycle(rex::cvar::Lifecycle::kRequiresRestart);
+
+ namespace rex {
+--- a/tests/unit/core/cvar_test.cpp
++++ b/tests/unit/core/cvar_test.cpp
+@@ -503,5 +503,30 @@
+   }
+ }
+
++REXCVAR_DEFINE_DOUBLE(test_explicit_refresh, 60.0, "Test", "Explicit refresh override")
++    .preserve_explicit_config_default();
++
++TEST_CASE("cvar preserves opt-in explicit config defaults", "[cvar]") {
++  rex::cvar::testing::ResetAllForTesting();
++  const auto path = std::filesystem::temp_directory_path() / "test_explicit_refresh.toml";
++  CHECK(rex::cvar::SerializeToTOML().find("test_explicit_refresh") == std::string::npos);
++  {
++    std::ofstream config(path);
++    config << "test_explicit_refresh = 60.0\n"
++           << "test_int32_flag = 42\n";
++  }
++  rex::cvar::LoadConfig(path);
++  REQUIRE(rex::cvar::GetFlagSource("test_explicit_refresh") == rex::cvar::Source::kConfig);
++  auto serialized = rex::cvar::SerializeToTOML("Test");
++  CHECK(serialized.find("test_explicit_refresh = 60") != std::string::npos);
++  CHECK(serialized.find("test_int32_flag") == std::string::npos);
++  rex::cvar::SaveConfig(path);
++  rex::cvar::testing::ResetAllForTesting();
++  rex::cvar::LoadConfig(path);
++  CHECK(rex::cvar::GetFlagSource("test_explicit_refresh") == rex::cvar::Source::kConfig);
++  CHECK(REXCVAR_GET(test_explicit_refresh) == 60.0);
++  std::filesystem::remove(path);
++}
++
+ TEST_CASE("cvar TOML serialization", "[cvar]") {
+   rex::cvar::testing::ResetAllForTesting();
