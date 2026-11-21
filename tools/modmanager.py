@@ -593,9 +593,8 @@ def main():
         if not picked or not modkit.is_game_folder(picked):
             return 1
         root = Path(picked)
-    # A folder set up by an older manager has no `ui` yet, and without it the
-    # game's own screens and this window fall back to plain faces.
-    modkit.stage_ui(root)
+    # A folder set up by an older manager may still have the console menu.
+    modkit.prepare_base_game(root)
     modkit.unname_commentary(root)
     window = Manager(root)
     if package:

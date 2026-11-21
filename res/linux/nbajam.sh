@@ -39,16 +39,14 @@ if [ ! -f default.xex ] || [ ! -d data ]; then
         exit 1
     fi
     rm -f unpacking.txt
-    # The typefaces and button pictures the port's own screens use. Optional:
-    # without Python and Pillow the game draws those screens in a plain face.
-    if command -v python3 >/dev/null 2>&1; then
-        python3 -c 'import sys; sys.path.insert(0, "setup")
-from pathlib import Path
-import dlc
-dlc.stage_fonts(Path("."))
-dlc.stage_glyphs(Path("."))' >/dev/null 2>&1 || true
-    fi
     say "Unpacked. Starting the game."
+fi
+
+# Also prepare already-unpacked games from older releases. No need to retry
+# optional art on every launch (e.g. if Pillow is unavailable).
+if [ -f setup/modkit.py ] && command -v python3 >/dev/null 2>&1; then
+    python3 -c 'import sys; sys.path.insert(0, "setup"); import modkit
+modkit.prepare_base_game(".", print, refresh_art=False)' || true
 fi
 
 # Start in the mod chosen last (./mods.sh use, or the game's own chooser),

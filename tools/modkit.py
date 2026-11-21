@@ -49,7 +49,7 @@ HERE = Path(__file__).resolve().parent
 # Things in the game folder that are not the game: they must not be copied
 # into a mod's root, or each mod would carry a copy of every other one.
 NOT_THE_GAME = {"mods", "saves", "logs", "ui", "metadata", "mods.list",
-                "saves.path", "crash_stack.txt", "hooks.txt"}
+                "saves.path", "crash_stack.txt", "hooks.txt", frontend.ORIGINALS}
 NOT_THE_GAME_SUFFIX = (".exe", ".dll", ".log", ".pdb")
 
 # PS3-only files, the archive that is platform code rather than data, and all
@@ -130,7 +130,7 @@ def unpack_container(game_exe, container, into, say=print, progress=None):
         note.unlink()
     if proc.returncode != 0 or not is_game_folder(into):
         return False
-    stage_ui(into, say)
+    prepare_base_game(into, say)
     say("Unpacked.")
     return True
 
@@ -149,7 +149,9 @@ def rel_files(root):
 
 def base_game_files(game):
     """Everything in the game folder that belongs to the game itself."""
-    for child in sorted(Path(game).iterdir()):
+    game = Path(game)
+    rewritten = set(frontend.asset_paths())
+    for child in sorted(game.iterdir()):
         if child.name in NOT_THE_GAME:
             continue
         if child.is_file():
@@ -158,7 +160,15 @@ def base_game_files(game):
             yield child, child.name
         elif child.is_dir():
             for p, rel in rel_files(child):
-                yield p, child.name + "/" + rel
+                rel = child.name + "/" + rel
+                if rel in rewritten:
+                    # The new mod needs its own originals, including any
+                    # overrides it brings. Do not clone the base's rewritten
+                    # menu or the backup directory that belongs only to it.
+                    stock = frontend.original_path(game, p)
+                    if stock.is_file():
+                        p = stock
+                yield p, rel
 
 
 def link_or_copy(src, dst):
@@ -314,6 +324,22 @@ def stage_ui(game, say=lambda _s: None):
         # Nothing depends on these: without them the game draws its own
         # screens in the runtime's face, and this window in the system's.
         say("  could not unpack the game's typefaces: %s" % exc)
+
+
+def prepare_base_game(game, say=lambda _s: None, *, refresh_art=True):
+    """Stage the PC menu and optional art, even with no mods installed."""
+    if not is_game_folder(game):
+        return
+    try:
+        ready = frontend.is_ready(game)
+        if refresh_art or not ready:
+            stage_ui(game, say)
+        if ready:
+            return
+        mods = [m for m in installed(game) if m["id"] != BASE]
+        frontend.apply(game, mods)
+    except (SystemExit, Exception) as exc:
+        say("  could not prepare the PC main menu: %s" % exc)
 
 
 def refresh_lists(game):

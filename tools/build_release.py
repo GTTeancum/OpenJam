@@ -74,8 +74,8 @@ LINUX_STRIPPED = {"nbajam_ofe", "librexruntimerd.so", "librexgpu-xenosrd.so",
                   "libTracyClientrd.so"}
 # The Mod Manager's own code, for mods.sh (installing mods from a terminal,
 # since the manager's window is Windows-only so far) and for the launcher's
-# first run (the game's typefaces and button art, if Pillow is there). Only
-# the standard library is needed beyond these.
+# base game setup (the PC menu and, if Pillow is there, the typefaces and
+# button art). Only the standard library is needed to prepare the menu.
 LINUX_SETUP = ["mods_cli.py", "modkit.py", "ps3_pkg_extract.py", "dlc.py",
                "ast_repack.py", "ast_textures.py", "commentary.py",
                "frontend.py", "apt.py", "apt_movie.py", "locdb.py",
@@ -256,7 +256,9 @@ INSTALLING
 
    or by double-clicking it and choosing Run. The first time, it unpacks the
    game - under a minute and about 850 MB beside it; your original file is
-   left alone - and then starts it. After that it goes straight in.
+   left alone - and then starts it. Python 3 enables the PC main menu with
+   Exit Game; without it the launcher can still start the original menu.
+   After the first setup it goes straight in.
 
 The game opens in a window. A controller is recommended; the menus also work
 with the keyboard. Options > Settings > Video switches to fullscreen and sets

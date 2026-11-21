@@ -27,6 +27,7 @@ import json
 import os
 import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -36,6 +37,7 @@ import locdb
 MENU = "data/xenon/fe/bounce/screens/menus/mainmenu.ast"
 PANEL = "data/xenon/fe/bounce/components/jamnet/jamfeed.ast"
 STRINGS = "data/xenon/loc/{}.db"
+DEFAULT_LANGUAGE = "eng_us"
 
 # The panel's message field, sized and placed for a paragraph in the middle of
 # an empty panel. A list wants the whole panel, from the top, ranged left.
@@ -135,18 +137,6 @@ def panel_text(mods, active):
     return "\n".join(out)
 
 
-def replace(path):
-    """Open a file for writing without writing through a hard link.
-
-    An instance is built out of hard links to the base game, so writing to one
-    of its files in place would edit the game itself. Removing it first breaks
-    the link and leaves the original alone.
-    """
-    if path.exists():
-        path.unlink()
-    return str(path)
-
-
 # Where a root keeps the three files this rewrites, exactly as they arrived.
 #
 # The rewrite is not something that can be done twice: it takes the dead Xbox
@@ -155,36 +145,62 @@ def replace(path):
 # be done again - every time a mod is installed or removed, every other root's
 # list is out of date - so each root keeps the originals and starts from them.
 ORIGINALS = "ui.original"
+READY = "menu-v1"
 
 
-def keep_original(root, path):
-    """The untouched file, restored if it is already kept, saved if not."""
-    stash = Path(root) / ORIGINALS / Path(path).name
-    if stash.is_file():
-        if path.exists():
-            path.unlink()               # never write through a hard link
-        shutil.copy2(stash, path)
-    else:
-        stash.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(path, stash)
+def asset_paths(language=DEFAULT_LANGUAGE):
+    return MENU, PANEL, STRINGS.format(language)
 
 
-def apply(root, mods=(), active=None, language="eng_us"):
+def original_path(root, path):
+    return Path(root) / ORIGINALS / Path(path).name
+
+
+def is_ready(root):
+    root = Path(root)
+    return ((root / ORIGINALS / READY).is_file()
+            and all((root / p).is_file() for p in asset_paths()))
+
+
+def apply(root, mods=(), active=None, language=DEFAULT_LANGUAGE):
     """Rewrite one game root's menu, panel and text. Returns what it did."""
     root = Path(root)
-    strings = root / STRINGS.format(language)
-    menu, panel = root / MENU, root / PANEL
-    for p in (menu, panel, strings):
-        if not p.exists():
+    paths = [root / p for p in asset_paths(language)]
+    for p in paths:
+        if not p.is_file():
             raise SystemExit("%s: not a game root (no %s)" % (root, p.name))
-        keep_original(root, p)
 
+    # Finish all three rewrites before changing any game file. A malformed
+    # asset must not leave setup with only part of the new screen. Replacing
+    # the files also keeps writes out of a mod's hard links to the base game.
+    backup = root / ORIGINALS
+    backup.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix=".menu-", dir=backup) as work:
+        sources, outputs = [], []
+        for path in paths:
+            source = original_path(root, path)
+            if not source.is_file():
+                copy = Path(work) / "stock"
+                shutil.copy2(path, copy)
+                copy.replace(source)
+            sources.append(source)
+            outputs.append(Path(work) / path.name)
+        done = rewrite(sources, outputs, mods, active)
+        for output, path in zip(outputs, paths):
+            output.replace(path)
+    if language == DEFAULT_LANGUAGE:
+        (backup / READY).touch()
+    return done
+
+
+def rewrite(sources, outputs, mods, active):
+    menu, panel, strings = sources
     done = []
 
     scr = apt.Screen(str(menu))
     _log, rows = apt.rebuild_menu(scr)
     apt.drop_helpbar_entry(scr, FOOTER_DROP)
-    scr.save(replace(menu))
+    scr.save(str(outputs[0]))
     done.append("main menu: %d icons out, %d rows of text"
                 % (len(apt.DEAD_XBOX_LIVE) + len(apt.AS_TEXT),
                    len([r for r in rows if r["array"] == 2])))
@@ -207,7 +223,7 @@ def apply(root, mods=(), active=None, language="eng_us"):
         apt.place(feed, fill, char=CARD_ART, x=CARD_X + b, y=top + b,
                   sx=(CARD_WIDTH - 2 * b) / ART_W,
                   sy=(CARD_HEIGHT - 2 * b) / ART_H, colour=CARD_INSIDE)
-    feed.save(replace(panel))
+    feed.save(str(outputs[1]))
     done.append("panel: %d box(es), orange on row %d"
                 % (min(len(rows), len(CARD_EDGE)),
                    rows.index(active) + 1 if active in rows else 1))
@@ -217,7 +233,7 @@ def apply(root, mods=(), active=None, language="eng_us"):
         db.set(token, text, expendable=expendable)
     text = panel_text(mods, active)
     db.set(PANEL_TEXT, text, expendable=expendable)
-    db.save(replace(strings))
+    db.save(str(outputs[2]))
     done.append("text: %d strings, and a mod list of %d character(s)"
                 % (len(apt.RETEXT) + 1, len(text)))
     return done
@@ -229,7 +245,7 @@ def main(argv):
     ap.add_argument("root", help="the game root to rewrite")
     ap.add_argument("--mods", metavar="DLC", help="a DLC folder to list")
     ap.add_argument("--active", metavar="ID", help="the mod this root has applied")
-    ap.add_argument("--language", default="eng_us")
+    ap.add_argument("--language", default=DEFAULT_LANGUAGE)
     args = ap.parse_args(argv)
 
     mods = []
