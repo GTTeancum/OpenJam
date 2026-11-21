@@ -369,6 +369,31 @@ def refresh_menus(game, say=lambda _s: None):
             say("  could not redraw %s: %s" % (m["id"], exc))
 
 
+def _stage_ps3_alias(root):
+    """Expose Xenon assets at the PS3 path used by mod data."""
+    alias, xenon = root / "data" / "ps3", root / "data" / "xenon"
+    if not xenon.is_dir() or alias.exists() or alias.is_symlink():
+        return
+    if os.name == "nt":
+        try:
+            # Keep the native Windows junction where available.
+            subprocess.run(["cmd", "/c", "mklink", "/J", str(alias),
+                            str(xenon)], check=True, capture_output=True,
+                           creationflags=NO_WINDOW)
+            return
+        except (OSError, subprocess.CalledProcessError):
+            pass
+
+    # ReXGlue's Linux guest VFS indexes physical directories but does not
+    # recurse into directory symlinks. A normal guest open can miss a file
+    # under such a link even though it exists on the host.
+    alias.mkdir()
+    for path, rel in rel_files(xenon):
+        target = alias / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        link_or_copy(path, target)
+
+
 def install(game, source, name=None, version="", author="", say=print,
             progress=lambda _done, _total: None):
     """Put a mod into the game folder. `source` is a .pkg or a folder."""
@@ -447,22 +472,11 @@ def install(game, source, name=None, version="", author="", say=print,
             except Exception as exc:                 # noqa: BLE001
                 say("  the bundled roster update would not convert: %s" % exc)
 
-        # The PS3 audio config asks for data/ps3 by name.
-        alias, xenon = root / "data" / "ps3", root / "data" / "xenon"
-        if xenon.is_dir() and not alias.exists() and os.name != "nt":
-            os.symlink("xenon", alias)
-        if xenon.is_dir() and not alias.exists():
-            try:
-                # CREATE_NO_WINDOW: without it this flashes a black console
-                # over the window every time a mod is installed.
-                subprocess.run(["cmd", "/c", "mklink", "/J", str(alias),
-                                str(xenon)], check=True, capture_output=True,
-                               creationflags=NO_WINDOW)
-            except Exception:
-                for p, rel in rel_files(xenon):
-                    t = alias / rel
-                    t.parent.mkdir(parents=True, exist_ok=True)
-                    link_or_copy(p, t)
+        # The announcer keeps the base game's voice but must not name the
+        # base game's players. See tools/commentary.py.
+        commentary.strip_root(root, say)
+        # A hard-linked alias must follow the atomic commentary XML rewrite.
+        _stage_ps3_alias(root)
 
         (root / ABOUT).write_text(
             "id = {}\nname = {}\nversion = {}\nauthor = {}\nfiles = {}\n"
@@ -474,10 +488,6 @@ def install(game, source, name=None, version="", author="", say=print,
         (game / SAVE_DIR / mod_id).mkdir(parents=True, exist_ok=True)
         (root / SAVE_MARKER).write_text(
             "../../{}/{}\n".format(SAVE_DIR, mod_id), encoding="utf-8")
-
-        # The announcer keeps the base game's voice but must not name the
-        # base game's players. See tools/commentary.py.
-        commentary.strip_root(root, say)
 
         say("Redrawing the menus")
         refresh_menus(game, say)
