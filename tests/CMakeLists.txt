@@ -15,3 +15,9 @@ if(WIN32)
             $<TARGET_FILE_DIR:mod_picker_input_test>
         COMMAND_EXPAND_LISTS VERBATIM)
 endif()
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    add_executable(menu_exit_test menu_exit_test.cpp ../src/menu_exit.cpp)
+    target_include_directories(menu_exit_test PRIVATE ../src)
+    target_link_libraries(menu_exit_test PRIVATE rex::runtime)
+endif()

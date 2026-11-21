@@ -6,6 +6,7 @@
 
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <system_error>
 #include <utility>
@@ -14,6 +15,7 @@
 #include "guest_base.h"
 #include "graphics_backend.h"
 #include "host.h"
+#include "menu_exit.h"
 #include "mod_picker.h"
 #include "null_page.h"
 #include "render_capture.h"
@@ -270,6 +272,21 @@ class NbajamOfeApp : public rex::ReXApp {
     rex::ReXApp::OnPostSetup();
   }
 
+#if defined(__linux__)
+  void OnPreLaunchModule() override {
+    NbaResetMenuExit();
+    menu_exit_window_->window = window();
+  }
+
+  void OnShutdown() override {
+    menu_exit_window_->window = nullptr;
+  }
+
+  void OnGuestThreadExit(rex::system::XThread*) override {
+    NbaQueueMenuExitClose(app_context(), menu_exit_window_);
+  }
+#endif
+
   // The mod list is drawn in the game's own typefaces, which tools/dlc.py
   // unpacks out of the front end's font archive into a folder beside the
   // executable. Here because the atlas is built once, before any dialog.
@@ -288,5 +305,9 @@ class NbajamOfeApp : public rex::ReXApp {
   }
 
  private:
+#if defined(__linux__)
+  const std::shared_ptr<NbaMenuExitWindow> menu_exit_window_ =
+      std::make_shared<NbaMenuExitWindow>();
+#endif
   std::filesystem::path legacy_save_import_;
 };

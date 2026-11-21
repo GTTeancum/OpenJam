@@ -136,3 +136,18 @@ address = 0x822DC750
 name = "NbaVideoTabRowCount"
 registers = ["r3", "r4"]
 return_on_true = true
+
+
+# Bounce_SKU.RequestGameExit: marks a deliberate exit from the game UI.
+# It is not enough to intercept XamLoaderLaunchTitle: the game passes the
+# same empty string during ordinary post-main cleanup.
+[[midasm_hook]]
+address = 0x828A86E0
+name = "NbaMenuExitRequested"
+
+# Record that the requested exit made it through guest cleanup to the
+# XamLoaderLaunchTitle call. Run the original call and let the guest finish.
+[[midasm_hook]]
+address = 0x82259414
+name = "NbaMenuExitLaunch"
+registers = ["r3", "r4"]

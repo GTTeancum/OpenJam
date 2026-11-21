@@ -30,6 +30,7 @@ option(REXPORT_GUEST_PROFILER "Sampling profiler for locating guest code" ON)
 
 set(NBAJAMOFE_SOURCES
     src/main.cpp
+    src/menu_exit.cpp
     src/host.cpp
     src/guest_base.cpp
     src/kernel_usbcam_stubs.cpp
